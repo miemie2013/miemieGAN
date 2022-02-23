@@ -1,7 +1,6 @@
 import paddle.nn as nn
 import paddle
 
-from .builder import DISCRIMINATORS
 from ..generators.generator_styleganv2ada import StyleGANv2ADA_MappingNetwork, upfirdn2d_setup_filter, Conv2dLayer, FullyConnectedLayer, downsample2d
 
 import numpy as np
@@ -171,7 +170,6 @@ class DiscriminatorEpilogue(nn.Layer):
         return x
 
 
-@DISCRIMINATORS.register()
 class StyleGANv2ADA_Discriminator(nn.Layer):
     def __init__(self,
         c_dim,                          # Conditioning label (C) dimensionality.

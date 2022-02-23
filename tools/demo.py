@@ -61,9 +61,6 @@ def make_parser():
         type=str,
         help="device to run our model, can either be cpu or gpu",
     )
-    parser.add_argument("--conf", default=0.3, type=float, help="test conf")
-    parser.add_argument("--nms", default=0.3, type=float, help="test nms threshold")
-    parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
         "--fp16",
         dest="fp16",
@@ -448,31 +445,6 @@ def main(exp, args):
     # 算法名字
     archi_name = exp.archi_name
 
-    # 不同的算法输入不同，新增算法时这里也要增加elif
-    if archi_name == 'YOLOX':
-        if args.conf is not None:
-            exp.test_conf = args.conf
-        if args.nms is not None:
-            exp.nmsthre = args.nms
-        if args.tsize is not None:
-            exp.test_size = (args.tsize, args.tsize)
-    elif archi_name == 'PPYOLO':
-        # PPYOLO使用的是matrix_nms，修改matrix_nms的配置。
-        if args.conf is not None:
-            exp.nms_cfg['score_threshold'] = args.conf
-            exp.nms_cfg['post_threshold'] = args.conf
-        if args.tsize is not None:
-            exp.test_size = (args.tsize, args.tsize)
-    elif archi_name == 'FCOS':
-        # FCOS暂时使用的是matrix_nms，修改matrix_nms的配置。
-        if args.conf is not None:
-            exp.nms_cfg['score_threshold'] = args.conf
-            exp.nms_cfg['post_threshold'] = args.conf
-        if args.tsize is not None:
-            exp.test_size = (args.tsize, exp.test_size[1])
-    else:
-        raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
-
     model = exp.get_model()
     # logger.info("Model Summary: {}".format(get_model_info(archi_name, model, exp.test_size)))
 
@@ -484,7 +456,7 @@ def main(exp, args):
 
     predictor = None
     # 不同的算法输入不同，新增算法时这里也要增加elif
-    if archi_name == 'YOLOX':
+    if archi_name == 'StyleGANv2ADA':
         # 加载模型权重
         if not args.trt:
             if args.ckpt is None:
@@ -517,72 +489,6 @@ def main(exp, args):
 
         predictor = YOLOXPredictor(
             model, exp, trt_file, decoder,
-            args.device, args.fp16, args.legacy,
-        )
-    elif archi_name == 'PPYOLO':
-        # 加载模型权重
-        if not args.trt:
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            ckpt = torch.load(ckpt_file, map_location="cpu")
-            # load the model state dict
-            model.load_state_dict(ckpt["model"])
-            logger.info("loaded checkpoint done.")
-
-        # 卷积层和bn层合并为一个卷积层
-        if args.fuse:
-            logger.info("\tFusing model...")
-            model = fuse_model(model)
-
-        if args.trt:
-            assert not args.fuse, "TensorRT model is not support model fusing!"
-            trt_file = os.path.join(file_name, "model_trt.pth")
-            assert os.path.exists(
-                trt_file
-            ), "TensorRT model is not found!\n Run python3 tools/trt.py first!"
-            model.head.decode_in_inference = False
-            logger.info("Using TensorRT to inference")
-        else:
-            trt_file = None
-
-        predictor = PPYOLOPredictor(
-            model, exp, trt_file,
-            args.device, args.fp16, args.legacy,
-        )
-    elif archi_name == 'FCOS':
-        # 加载模型权重
-        if not args.trt:
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            ckpt = torch.load(ckpt_file, map_location="cpu")
-            # load the model state dict
-            model.load_state_dict(ckpt["model"])
-            logger.info("loaded checkpoint done.")
-
-        # 卷积层和bn层合并为一个卷积层
-        if args.fuse:
-            logger.info("\tFusing model...")
-            model = fuse_model(model)
-
-        if args.trt:
-            assert not args.fuse, "TensorRT model is not support model fusing!"
-            trt_file = os.path.join(file_name, "model_trt.pth")
-            assert os.path.exists(
-                trt_file
-            ), "TensorRT model is not found!\n Run python3 tools/trt.py first!"
-            model.head.decode_in_inference = False
-            logger.info("Using TensorRT to inference")
-        else:
-            trt_file = None
-
-        predictor = FCOSPredictor(
-            model, exp, trt_file,
             args.device, args.fp16, args.legacy,
         )
     else:

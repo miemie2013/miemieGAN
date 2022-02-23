@@ -1,5 +1,5 @@
 import cv2
-from paddle.fluid.layers.nn import soft_relu
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,7 +49,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
     def __init__(
         self,
         synthesis,
-        mapping=None,
+        synthesis_ema,
+        mapping,
+        mapping_ema,
         discriminator=None,
         G_reg_interval=4,
         D_reg_interval=16,
@@ -61,13 +63,18 @@ class StyleGANv2ADAModel(torch.nn.Module):
         pl_weight=2.0,
     ):
         super(StyleGANv2ADAModel, self).__init__()
+        self.nets = OrderedDict()
+        self.optimizers = OrderedDict()
+        self.metrics = OrderedDict()
+        self.losses = OrderedDict()
+        self.visual_items = OrderedDict()
         self.nets_ema = {}
-        self.nets['synthesis'] = build_generator(synthesis)
-        self.nets_ema['synthesis'] = build_generator(synthesis)
-        self.nets['mapping'] = build_generator(mapping)
-        self.nets_ema['mapping'] = build_generator(mapping)
+        self.nets['synthesis'] = synthesis
+        self.nets_ema['synthesis'] = synthesis_ema
+        self.nets['mapping'] = mapping
+        self.nets_ema['mapping'] = mapping_ema
         if discriminator:
-            self.nets['discriminator'] = build_discriminator(discriminator)
+            self.nets['discriminator'] = discriminator
         self.c_dim = mapping.c_dim
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim
@@ -92,7 +99,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.batch_idx = 0
 
         # loss config.
-        self.augment_pipe = build_generator(augment_pipe)
+        # self.augment_pipe = build_generator(augment_pipe)
         self.augment_pipe = None
         self.style_mixing_prob = style_mixing_prob
         self.r1_gamma = r1_gamma
@@ -100,7 +107,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.pl_decay = pl_decay
         self.pl_weight = pl_weight
 
-        self.pl_mean = paddle.zeros([1, ], dtype=paddle.float32)
+        self.pl_mean = torch.zeros([1, ], dtype=torch.float32)
 
 
 

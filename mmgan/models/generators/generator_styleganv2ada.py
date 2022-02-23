@@ -5,7 +5,6 @@ import paddle
 from paddle import nn
 import paddle.nn.functional as F
 
-from .builder import GENERATORS
 import numpy as np
 import math
 import scipy
@@ -525,7 +524,6 @@ def normalize_2nd_moment(x, dim=1, eps=1e-8):
     return x * (x.square().mean(axis=dim, keepdim=True) + eps).rsqrt()
 
 
-@GENERATORS.register()
 class StyleGANv2ADA_MappingNetwork(nn.Layer):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality, 0 = no latent.
@@ -1094,12 +1092,6 @@ class SynthesisBlock(nn.Layer):
 
 
 
-'''
-兼容原版仓库的
-SynthesisNetworkFull
-SynthesisNetworkV18
-'''
-@GENERATORS.register()
 class StyleGANv2ADA_SynthesisNetwork(nn.Layer):
     def __init__(self,
         w_dim,                      # Intermediate latent (W) dimensionality.
@@ -1289,7 +1281,6 @@ def rotate2d_inv(theta, **kwargs):
 # be enabled by setting their probability multipliers to 1.
 
 
-@GENERATORS.register()
 class StyleGANv2ADA_AugmentPipe(nn.Layer):
     def __init__(self,
         xflip=0, rotate90=0, xint=0, xint_max=0.125,

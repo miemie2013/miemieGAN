@@ -21,6 +21,10 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # ---------------- architecture name(算法名) ---------------- #
         self.archi_name = 'StyleGANv2ADA'
 
+        # ---------------- dataset config ---------------- #
+        # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
+        self.data_num_workers = 2
+
         # --------------  training config --------------------- #
         self.max_epoch = 811
         self.aug_epochs = 811  # 前几轮进行mixup、cutmix、mosaic
@@ -42,201 +46,65 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.milestones_epoch = [649, 730]
 
         # -----------------  testing config ------------------ #
-        self.test_size = (608, 608)
+        self.noise_mode = 'const'   # ['const', 'random', 'none']
+        self.truncation_psi = 1.0
 
         # ---------------- model config ---------------- #
-        self.output_dir = "PPYOLO_outputs"
-        self.backbone_type = 'Resnet50Vd'
-        self.backbone = dict(
-            norm_type='bn',
-            feature_maps=[3, 4, 5],
-            dcn_v2_stages=[5],
-            downsample_in3x3=True,   # 注意这个细节，是在3x3卷积层下采样的。
-            freeze_at=0,
-            fix_bn_mean_var_at=0,
-            freeze_norm=False,
-            norm_decay=0.,
+        self.output_dir = "StyleGANv2ADA_outputs"
+        self.w_dim = 512
+        self.z_dim = 512
+        self.c_dim = 0
+        self.img_resolution = 512
+        self.img_channels = 3
+        self.channel_base = 32768
+        self.channel_max = 512
+        self.num_fp16_res = 4
+        self.conv_clamp = 256
+        self.synthesis_type = 'StyleGANv2ADA_SynthesisNetwork'
+        self.synthesis = dict(
+            w_dim=self.w_dim,
+            img_resolution=self.img_resolution,
+            img_channels=self.img_channels,
+            channel_base=self.channel_base,
+            channel_max=self.channel_max,
+            num_fp16_res=self.num_fp16_res,
+            conv_clamp=self.conv_clamp,
         )
-        self.fpn_type = 'PPYOLOFPN'
-        self.fpn = dict(
-            in_channels=[512, 1024, 2048],
-            coord_conv=True,
-            drop_block=True,
-            block_size=3,
-            keep_prob=0.9,
-            spp=True,
+        self.mapping_type = 'StyleGANv2ADA_MappingNetwork'
+        self.mapping = dict(
+            z_dim=self.z_dim,
+            c_dim=self.c_dim,
+            w_dim=self.w_dim,
+            num_ws=16,
+            num_layers=8,
         )
-        self.head_type = 'YOLOv3Head'
-        self.head = dict(
-            in_channels=[1024, 512, 256],
-            num_classes=self.num_classes,
-            anchor_masks=[[6, 7, 8], [3, 4, 5], [0, 1, 2]],
-            anchors=[[10, 13], [16, 30], [33, 23],
-                     [30, 61], [62, 45], [59, 119],
-                     [116, 90], [156, 198], [373, 326]],
-            downsample=[32, 16, 8],
-            scale_x_y=1.05,
-            clip_bbox=True,
-            iou_aware=True,
-            iou_aware_factor=0.4,
+        self.discriminator_type = 'StyleGANv2ADA_Discriminator'
+        self.discriminator = dict(
+            c_dim=self.c_dim,
+            img_resolution=self.img_resolution,
+            img_channels=self.img_channels,
+            channel_base=self.channel_base,
+            channel_max=self.channel_max,
+            num_fp16_res=self.num_fp16_res,
+            conv_clamp=self.conv_clamp,
+            block_kwargs={},
+            mapping_kwargs={},
+            epilogue_kwargs=dict(mbstd_group_size=8,),
         )
-        self.iou_loss = dict(
-            loss_weight=2.5,
-            loss_square=True,
-        )
-        self.iou_aware_loss = dict(
-            loss_weight=1.0,
-        )
-        self.yolo_loss = dict(
-            ignore_thresh=0.7,
-            downsample=[32, 16, 8],
-            label_smooth=False,
-            scale_x_y=1.05,
-        )
-        self.nms_cfg = dict(
-            nms_type='matrix_nms',
-            score_threshold=0.01,
-            post_threshold=0.01,
-            nms_top_k=500,
-            keep_top_k=100,
-            use_gaussian=False,
-            gaussian_sigma=2.,
-        )
-
-        # ---------------- 预处理相关 ---------------- #
-        self.context = {'fields': ['image', 'gt_bbox', 'gt_class', 'gt_score']}
-        # DecodeImage
-        self.decodeImage = dict(
-            to_rgb=True,
-            with_mixup=True,
-            with_cutmix=False,
-            with_mosaic=False,
-        )
-        # MixupImage
-        self.mixupImage = dict(
-            alpha=1.5,
-            beta=1.5,
-        )
-        # CutmixImage
-        self.cutmixImage = dict(
-            alpha=1.5,
-            beta=1.5,
-        )
-        # MosaicImage
-        self.mosaicImage = dict(
-            alpha=1.5,
-            beta=1.5,
-        )
-        # ColorDistort
-        self.colorDistort = dict()
-        # RandomExpand
-        self.randomExpand = dict(
-            fill_value=[123.675, 116.28, 103.53],
-        )
-        # RandomCrop
-        self.randomCrop = dict()
-        # RandomFlipImage
-        self.randomFlipImage = dict(
-            is_normalized=False,
-        )
-        # NormalizeBox
-        self.normalizeBox = dict()
-        # PadBox
-        self.padBox = dict(
-            num_max_boxes=50,
-        )
-        # BboxXYXY2XYWH
-        self.bboxXYXY2XYWH = dict()
-        # RandomShape
-        self.randomShape = dict(
-            sizes=[320, 352, 384, 416, 448, 480, 512, 544, 576, 608],
-            random_inter=True,
-        )
-        # NormalizeImage
-        self.normalizeImage = dict(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-            is_scale=True,
-            is_channel_first=False,
-        )
-        # Permute
-        self.permute = dict(
-            to_bgr=False,
-            channel_first=True,
-        )
-        # Gt2YoloTarget
-        self.gt2YoloTarget = dict(
-            anchor_masks=[[6, 7, 8], [3, 4, 5], [0, 1, 2]],
-            anchors=[[10, 13], [16, 30], [33, 23],
-                     [30, 61], [62, 45], [59, 119],
-                     [116, 90], [156, 198], [373, 326]],
-            downsample_ratios=[32, 16, 8],
-            num_classes=self.num_classes,
-        )
-        # ResizeImage
-        self.resizeImage = dict(
-            target_size=608,
-            interp=2,
-        )
-
-        # 预处理顺序。增加一些数据增强时这里也要加上，否则train.py中相当于没加！
-        self.sample_transforms_seq = []
-        self.sample_transforms_seq.append('decodeImage')
-        if self.decodeImage['with_mixup']:
-            self.sample_transforms_seq.append('mixupImage')
-        elif self.decodeImage['with_cutmix']:
-            self.sample_transforms_seq.append('cutmixImage')
-        elif self.decodeImage['with_mosaic']:
-            self.sample_transforms_seq.append('mosaicImage')
-        self.sample_transforms_seq.append('colorDistort')
-        self.sample_transforms_seq.append('randomExpand')
-        self.sample_transforms_seq.append('randomCrop')
-        self.sample_transforms_seq.append('randomFlipImage')
-        self.sample_transforms_seq.append('normalizeBox')
-        self.sample_transforms_seq.append('padBox')
-        self.sample_transforms_seq.append('bboxXYXY2XYWH')
-        self.sample_transforms_seq.append('randomShape')
-        self.sample_transforms_seq.append('normalizeImage')
-        self.sample_transforms_seq.append('permute')
-        self.sample_transforms_seq.append('gt2YoloTarget')
-        self.batch_transforms_seq = []
-        # self.batch_transforms_seq.append('randomShape')
-        # self.batch_transforms_seq.append('normalizeImage')
-        # self.batch_transforms_seq.append('permute')
-        # self.batch_transforms_seq.append('gt2YoloTarget')
-
-        # ---------------- dataloader config ---------------- #
-        # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
-        self.data_num_workers = 2
 
     def get_model(self):
-        from mmdet.models import Resnet50Vd, Resnet101Vd, Resnet18Vd, IouLoss, IouAwareLoss, YOLOv3Loss, YOLOv3Head, PPYOLO
-        from mmdet.models.necks.yolo_fpn import PPYOLOFPN, PPYOLOPAN
+        from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator
+        from mmgan.models import StyleGANv2ADAModel
         if getattr(self, "model", None) is None:
-            Backbone = None
-            if self.backbone_type == 'Resnet50Vd':
-                Backbone = Resnet50Vd
-            elif self.backbone_type == 'Resnet101Vd':
-                Backbone = Resnet101Vd
-            elif self.backbone_type == 'Resnet18Vd':
-                Backbone = Resnet18Vd
-            backbone = Backbone(**self.backbone)
-            # 冻结骨干网络
-            backbone.freeze()
-            backbone.fix_bn()
-            Fpn = None
-            if self.fpn_type == 'PPYOLOFPN':
-                Fpn = PPYOLOFPN
-            elif self.fpn_type == 'PPYOLOPAN':
-                Fpn = PPYOLOPAN
-            fpn = Fpn(**self.fpn)
-            iou_loss = IouLoss(**self.iou_loss)
-            iou_aware_loss = None
-            if self.head['iou_aware']:
-                iou_aware_loss = IouAwareLoss(**self.iou_aware_loss)
-            yolo_loss = YOLOv3Loss(iou_loss=iou_loss, iou_aware_loss=iou_aware_loss, **self.yolo_loss)
-            head = YOLOv3Head(loss=yolo_loss, nms_cfg=self.nms_cfg, **self.head)
-            self.model = PPYOLO(backbone, fpn, head)
+            synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
+            synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
+            mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
+            mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
+            discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
+            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema, discriminator=discriminator,
+                                            G_reg_interval=4, D_reg_interval=16, augment_pipe=None,
+                                            style_mixing_prob=0.9, r1_gamma=10, pl_batch_shrink=2,
+                                            pl_decay=0.01, pl_weight=2.0)
         return self.model
 
     def get_data_loader(
