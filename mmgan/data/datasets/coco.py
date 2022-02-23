@@ -12,6 +12,13 @@ import torch
 import numpy as np
 from pycocotools.coco import COCO
 
+import PIL
+from PIL import Image
+try:
+    import pyspng
+except ImportError:
+    pyspng = None
+
 from .. import RandomShapeSingle, YOLOXResizeImage
 from ..dataloading import get_yolox_datadir
 from .datasets_wrapper import Dataset
@@ -423,62 +430,100 @@ class FCOS_COCOEvalDataset(torch.utils.data.Dataset):
         return pimage, im_info, im_id
 
 
-class PPYOLO_COCOTrainDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, json_file, ann_folder, name, cfg, sample_transforms, batch_size):
-        self.data_dir = data_dir
-        self.json_file = json_file
-        self.ann_folder = ann_folder
-        self.name = name
+class StyleGANv2ADADataset(torch.utils.data.Dataset):
+    def __init__(self, dataroot, resolution=None,
+                 max_size=None, use_labels=False, xflip=False, random_seed=0, len_phases=4, batch_size=1):
 
-        # 训练集
-        train_path = os.path.join(self.data_dir, self.ann_folder, self.json_file)
-        train_pre_path = os.path.join(self.data_dir, self.name)
+        self.dataroot = dataroot
+        self.len_phases = len_phases
 
-        # 种类id
-        _catid2clsid, _clsid2catid, _clsid2cname, class_names = get_class_msg(train_path)
+        self._type = 'dir'
+        self._all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.dataroot) for root, _dirs, files in os.walk(self.dataroot) for fname in files}
 
-        train_dataset = COCO(train_path)
-        train_img_ids = train_dataset.getImgIds()
-        train_records = data_clean(train_dataset, train_img_ids, _catid2clsid, train_pre_path, 'train')
+        PIL.Image.init()
+        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+        if len(self._image_fnames) == 0:
+            raise IOError('No image files found in the specified path')
 
-        self.coco = train_dataset
-        self.records = train_records
-        self.context = cfg.context
-        self.sample_transforms = sample_transforms
-        self.catid2clsid = _catid2clsid
-        self.clsid2catid = _clsid2catid
-        self.num_record = len(train_records)
-        self.with_mixup = cfg.decodeImage.get('with_mixup', False)
-        self.with_cutmix = cfg.decodeImage.get('with_cutmix', False)
-        self.with_mosaic = cfg.decodeImage.get('with_mosaic', False)
-        self.batch_size = batch_size
+        name = os.path.splitext(os.path.basename(self.dataroot))[0]
+        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
+        if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+            raise IOError('Image files do not match the specified resolution')
 
+        # 父类
+        # super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+        self._name = name
+        self._raw_shape = list(raw_shape)
+        self._use_labels = use_labels
+        self._raw_labels = None
+        self._label_shape = None
+
+        # Apply max_size.
+        self._raw_idx = np.arange(self._raw_shape[0], dtype=np.int64)
+        if (max_size is not None) and (self._raw_idx.size > max_size):
+            np.random.RandomState(random_seed).shuffle(self._raw_idx)
+            self._raw_idx = np.sort(self._raw_idx[:max_size])
+
+        # Apply xflip.
+        self._xflip = np.zeros(self._raw_idx.size, dtype=np.uint8)
+        if xflip:
+            self._raw_idx = np.tile(self._raw_idx, 2)
+            self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
 
         # 一轮的步数。丢弃最后几个样本。
-        self.train_steps = self.num_record // batch_size
-
-        # mixup、cutmix、mosaic数据增强的轮数
-        self.aug_epochs = cfg.aug_epochs
+        self.batch_size = batch_size
+        self.train_steps = self._raw_idx.size // batch_size
 
         # 训练样本
-        self.indexes_ori = [i for i in range(self.num_record)]
+        self.indexes_ori = [i for i in range(self._raw_idx.size)]
         self.indexes = copy.deepcopy(self.indexes_ori)
         # 每个epoch之前洗乱
         np.random.shuffle(self.indexes)
         self.indexes = self.indexes[:self.train_steps * self.batch_size]
         self._len = len(self.indexes)
 
-        # 多尺度训练
-        self.sizes = cfg.randomShape['sizes']
-        self.shapes = []
-        while len(self.shapes) < self.train_steps:
-            shape = np.random.choice(self.sizes)
-            self.shapes.append(shape)
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
 
-        # 输出特征图数量
-        self.n_layers = len(cfg.head['downsample'])
-        self._epoch = 0
+    def _get_zipfile(self):
+        assert self._type == 'zip'
+        if self._zipfile is None:
+            self._zipfile = zipfile.ZipFile(self.dataroot)
+        return self._zipfile
 
+    def _open_file(self, fname):
+        if self._type == 'dir':
+            return open(os.path.join(self.dataroot, fname), 'rb')
+        if self._type == 'zip':
+            return self._get_zipfile().open(fname, 'r')
+        return None
+
+    def _load_raw_image(self, raw_idx):
+        fname = self._image_fnames[raw_idx]
+        with self._open_file(fname) as f:
+            if pyspng is not None and self._file_ext(fname) == '.png':
+                image = pyspng.load(f.read())
+            else:
+                image = np.array(PIL.Image.open(f))
+        if image.ndim == 2:
+            image = image[:, :, np.newaxis] # HW => HWC
+        image = image.transpose(2, 0, 1) # HWC => CHW
+        return image
+
+    def _load_raw_labels(self):
+        fname = 'dataset.json'
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)['labels']
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
+        labels = np.array(labels)
+        labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
+        return labels
 
     def __len__(self):
         return self._len
@@ -486,92 +531,87 @@ class PPYOLO_COCOTrainDataset(torch.utils.data.Dataset):
     def set_epoch(self, epoch_id):
         self._epoch = epoch_id
 
-        # 多尺度训练
-        self.shapes = []
-        while len(self.shapes) < self.train_steps:
-            shape = np.random.choice(self.sizes)
-            self.shapes.append(shape)
-
         self.indexes = copy.deepcopy(self.indexes_ori)
         # 每个epoch之前洗乱
         np.random.shuffle(self.indexes)
         self.indexes = self.indexes[:self._len]
 
     def __getitem__(self, idx):
-        iter_id = idx // self.batch_size
         img_idx = self.indexes[idx]
-        shape = self.shapes[iter_id]
-        sample = copy.deepcopy(self.records[img_idx])
-        sample["curr_iter"] = iter_id
+        image = self._load_raw_image(self._raw_idx[img_idx])
+        assert isinstance(image, np.ndarray)
+        assert list(image.shape) == self.image_shape
+        assert image.dtype == np.uint8
+        if self._xflip[idx]:
+            assert image.ndim == 3 # CHW
+            image = image[:, :, ::-1]
+        image_gen_c = [self.get_label(np.random.randint(len(self))) for _ in range(self.len_phases)]
+        return image.copy(), self.get_label(idx), image_gen_c
 
-        # 为mixup数据增强做准备
-        if self.with_mixup and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['mixup'] = copy.deepcopy(self.records[mix_idx])
-            sample['mixup']["curr_iter"] = iter_id
+    def get_label(self, idx):
+        label = self._get_raw_labels()[self._raw_idx[idx]]
+        if label.dtype == np.int64:
+            onehot = np.zeros(self.label_shape, dtype=np.float32)
+            onehot[label] = 1
+            label = onehot
+        return label.copy()
 
-        # 为cutmix数据增强做准备
-        if self.with_cutmix and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['cutmix'] = copy.deepcopy(self.records[mix_idx])
-            sample['cutmix']["curr_iter"] = iter_id
+    def _get_raw_labels(self):
+        if self._raw_labels is None:
+            self._raw_labels = self._load_raw_labels() if self._use_labels else None
+            if self._raw_labels is None:
+                self._raw_labels = np.zeros([self._raw_shape[0], 0], dtype=np.float32)
+            assert isinstance(self._raw_labels, np.ndarray)
+            assert self._raw_labels.shape[0] == self._raw_shape[0]
+            assert self._raw_labels.dtype in [np.float32, np.int64]
+            if self._raw_labels.dtype == np.int64:
+                assert self._raw_labels.ndim == 1
+                assert np.all(self._raw_labels >= 0)
+        return self._raw_labels
 
-        # 为mosaic数据增强做准备
-        if self.with_mosaic and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['mosaic1'] = copy.deepcopy(self.records[mix_idx])
-            sample['mosaic1']["curr_iter"] = iter_id
+    @property
+    def image_shape(self):
+        return list(self._raw_shape[1:])
 
-            mix_idx2 = np.random.randint(0, num)
-            while mix_idx2 in [img_idx, mix_idx]:   # 为了不重复
-                mix_idx2 = np.random.randint(0, num)
-            sample['mosaic2'] = copy.deepcopy(self.records[mix_idx2])
-            sample['mosaic2']["curr_iter"] = iter_id
 
-            mix_idx3 = np.random.randint(0, num)
-            while mix_idx3 in [img_idx, mix_idx, mix_idx2]:   # 为了不重复
-                mix_idx3 = np.random.randint(0, num)
-            sample['mosaic3'] = copy.deepcopy(self.records[mix_idx3])
-            sample['mosaic3']["curr_iter"] = iter_id
+    @property
+    def num_channels(self):
+        assert len(self.image_shape) == 3 # CHW
+        return self.image_shape[0]
 
-        # sample_transforms
-        for sample_transform in self.sample_transforms:
-            if isinstance(sample_transform, RandomShapeSingle):
-                sample = sample_transform(shape, sample, self.context)
+    @property
+    def resolution(self):
+        assert len(self.image_shape) == 3 # CHW
+        assert self.image_shape[1] == self.image_shape[2]
+        return self.image_shape[1]
+
+    @property
+    def label_shape(self):
+        if self._label_shape is None:
+            raw_labels = self._get_raw_labels()
+            if raw_labels.dtype == np.int64:
+                self._label_shape = [int(np.max(raw_labels)) + 1]
             else:
-                sample = sample_transform(sample, self.context)
+                self._label_shape = raw_labels.shape[1:]
+        return list(self._label_shape)
 
-        # 取出感兴趣的项
-        # pimage = sample['image']
-        # im_info = sample['im_info']
-        # im_id = sample['im_id']
-        # h = sample['h']
-        # w = sample['w']
-        # is_crowd = sample['is_crowd']
-        # gt_class = sample['gt_class']
-        # gt_bbox = sample['gt_bbox']
-        # gt_score = sample['gt_score']
-        # curr_iter = sample['curr_iter']
-        # return pimage, im_info, im_id, h, w, is_crowd, gt_class, gt_bbox, gt_score, curr_iter
 
-        # 取出感兴趣的项
-        image = sample['image'].astype(np.float32)
-        gt_bbox = sample['gt_bbox'].astype(np.float32)
-        target0 = sample['target0'].astype(np.float32)
-        target1 = sample['target1'].astype(np.float32)
-        if self.n_layers == 3:
-            target2 = sample['target2'].astype(np.float32)
-            return image, gt_bbox, target0, target1, target2
-        return image, gt_bbox, target0, target1
+class StyleGANv2ADATestDataset(torch.utils.data.Dataset):
+    def __init__(self, seeds, z_dim):
+        self.seeds = seeds
+        self.z_dim = z_dim
+
+    def __len__(self):
+        size = len(self.seeds)
+        return size
+
+    def __getitem__(self, idx):
+        seed = self.seeds[idx]
+        z = np.random.RandomState(seed).randn(self.z_dim, )
+        datas = {
+            'z': z,
+        }
+        return datas
 
 
 

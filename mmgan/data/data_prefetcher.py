@@ -51,7 +51,7 @@ class DataPrefetcher:
         input.record_stream(torch.cuda.current_stream())
 
 
-class PPYOLODataPrefetcher:
+class StyleGANv2ADADataPrefetcher:
     """
     xxxDataPrefetcher is inspired by code of following file:
     https://github.com/NVIDIA/apex/blob/master/examples/imagenet/main_amp.py

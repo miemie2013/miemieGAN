@@ -24,7 +24,6 @@ from mmgan.utils import configure_nccl, configure_omp, get_num_devices
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN train parser")
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
-    parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
     # distributed
     parser.add_argument(
@@ -119,7 +118,7 @@ if __name__ == "__main__":
         args.exp_file = '../' + args.exp_file
         if args.ckpt is not None:
             args.ckpt = '../' + args.ckpt   # 如果是绝对路径，把这一行注释掉
-    exp = get_exp(args.exp_file, args.name)
+    exp = get_exp(args.exp_file)
     exp.merge(args.opts)
 
     if not args.experiment_name:

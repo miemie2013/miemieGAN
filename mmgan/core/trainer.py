@@ -13,9 +13,9 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
-from mmdet.data import DataPrefetcher, PPYOLODataPrefetcher
-from mmdet.data.data_prefetcher import FCOSDataPrefetcher
-from mmdet.utils import (
+from mmgan.data import DataPrefetcher, StyleGANv2ADADataPrefetcher
+from mmgan.data.data_prefetcher import FCOSDataPrefetcher
+from mmgan.utils import (
     MeterBuffer,
     ModelEMA,
     all_reduce_norm,
@@ -54,17 +54,6 @@ class Trainer:
 
         # data/dataloader related attr
         self.data_type = torch.float16 if args.fp16 else torch.float32
-
-        # YOLOX多尺度训练，初始尺度。
-        if self.archi_name == 'YOLOX':
-            self.input_size = exp.input_size
-        elif self.archi_name == 'PPYOLO':
-            pass
-        elif self.archi_name == 'FCOS':
-            pass
-        else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
-        self.best_ap = 0
 
         # metric record
         self.meter = MeterBuffer(window_size=exp.print_interval)
@@ -234,77 +223,54 @@ class Trainer:
         # model related init
         torch.cuda.set_device(self.local_rank)
         model = self.exp.get_model()
-        logger.info("Model Summary: {}".format(get_model_info(self.archi_name, model, self.exp.test_size)))
+        # logger.info("Model Summary: {}".format(get_model_info(self.archi_name, model, self.exp.test_size)))
         model.to(self.device)
 
         # 是否进行梯度裁剪
         self.need_clip = False
 
-        if self.archi_name == 'YOLOX':
-            # solver related init
-            self.optimizer = self.exp.get_optimizer(self.args.batch_size)
+        if self.archi_name == 'StyleGANv2ADA':
+            learning_rate = self.exp.basic_lr_per_img * self.args.batch_size
+            beta1 = self.exp.optimizer_cfg['generator']['beta1']
+            beta2 = self.exp.optimizer_cfg['generator']['beta2']
 
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
+            G_reg_interval = self.exp.G_reg_interval
+            D_reg_interval = self.exp.D_reg_interval
 
-            self.no_aug = self.start_epoch >= self.max_epoch - self.exp.no_aug_epochs
-            self.train_loader = self.exp.get_data_loader(
-                batch_size=self.args.batch_size,
-                is_distributed=self.is_distributed,
-                no_aug=self.no_aug,
-                cache_img=self.args.cache,
-            )
-            logger.info("init prefetcher, this might take one minute or less...")
-            self.prefetcher = DataPrefetcher(self.train_loader)
-        elif self.archi_name == 'PPYOLO':
-            # 多卡训练时，使用同步bn
-            if self.is_distributed:
-                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-                logger.info('Using SyncBatchNorm()')
-
-            # 不可以加正则化的参数：norm层(比如bn层、affine_channel层、gn层)的scale、offset；卷积层的偏移参数。
-            self.base_lr = self.exp.basic_lr_per_img * self.args.batch_size
-            param_groups = []
-            base_wd = self.exp.weight_decay
-            momentum = self.exp.momentum
-            # 是否进行梯度裁剪
-            self.need_clip = hasattr(self.exp, 'clip_grad_by_norm')
-            self.clip_norm = 1000000.0
-            if self.need_clip:
-                self.clip_norm = getattr(self.exp, 'clip_grad_by_norm')
-            model.add_param_group(param_groups, self.base_lr, base_wd, self.need_clip, self.clip_norm)
-
-            # solver related init
-            self.optimizer = self.exp.get_optimizer(self.args.batch_size, param_groups, momentum=momentum, weight_decay=base_wd)
-
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
+            for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
+                if reg_interval is None:
+                    pass
+                    # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
+                    #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
+                    # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
+                else:  # Lazy regularization.
+                    mb_ratio = reg_interval / (reg_interval + 1)
+                    new_lr = learning_rate * mb_ratio
+                    new_beta1 = beta1 ** mb_ratio
+                    new_beta2 = beta2 ** mb_ratio
+                if name == 'G':
+                    self.base_lr_G = new_lr
+                    self.exp.optimizer_cfg['generator']['beta1'] = new_beta1
+                    self.exp.optimizer_cfg['generator']['beta2'] = new_beta2
+                elif name == 'D':
+                    self.base_lr_D = new_lr
+                    self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
+                    self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
 
 
-            self.train_loader = self.exp.get_data_loader(
-                batch_size=self.args.batch_size,
-                is_distributed=self.is_distributed,
-                cache_img=self.args.cache,
-            )
-            self.n_layers = self.exp.n_layers
-
-            logger.info("init prefetcher, this might take one minute or less...")
-            self.prefetcher = PPYOLODataPrefetcher(self.train_loader, self.n_layers)
-        elif self.archi_name == 'FCOS':
-            # 不可以加正则化的参数：norm层(比如bn层、affine_channel层、gn层)的scale、offset；卷积层的偏移参数。
-            self.base_lr = self.exp.basic_lr_per_img * self.args.batch_size
-            param_groups = []
-            base_wd = self.exp.weight_decay
-            momentum = self.exp.momentum
-            # 是否进行梯度裁剪
-            self.need_clip = hasattr(self.exp, 'clip_grad_by_norm')
-            self.clip_norm = 1000000.0
-            if self.need_clip:
-                self.clip_norm = getattr(self.exp, 'clip_grad_by_norm')
-            model.add_param_group(param_groups, self.base_lr, base_wd, self.need_clip, self.clip_norm)
+            # param_groups = []
+            # base_wd = self.exp.weight_decay
+            # momentum = self.exp.momentum
+            # # 是否进行梯度裁剪
+            # self.need_clip = hasattr(self.exp, 'clip_grad_by_norm')
+            # self.clip_norm = 1000000.0
+            # if self.need_clip:
+            #     self.clip_norm = getattr(self.exp, 'clip_grad_by_norm')
+            # model.add_param_group(param_groups, self.base_lr, base_wd, self.need_clip, self.clip_norm)
 
             # solver related init
-            self.optimizer = self.exp.get_optimizer(self.args.batch_size, param_groups, momentum=momentum, weight_decay=base_wd)
+            self.optimizer_G = self.exp.get_optimizer(self.base_lr_G, 'G')
+            self.optimizer_D = self.exp.get_optimizer(self.base_lr_D, 'D')
 
             # value of epoch will be set in `resume_train`
             model = self.resume_train(model)
@@ -315,10 +281,9 @@ class Trainer:
                 is_distributed=self.is_distributed,
                 cache_img=self.args.cache,
             )
-            self.n_layers = self.exp.n_layers
 
             logger.info("init prefetcher, this might take one minute or less...")
-            self.prefetcher = FCOSDataPrefetcher(self.train_loader, self.n_layers)
+            self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 

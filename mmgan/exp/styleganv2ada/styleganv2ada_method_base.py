@@ -21,11 +21,9 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # ---------------- architecture name(算法名) ---------------- #
         self.archi_name = 'StyleGANv2ADA'
 
-        # ---------------- dataset config ---------------- #
-        # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
-        self.data_num_workers = 2
-
         # --------------  training config --------------------- #
+        self.G_reg_interval = 4
+        self.D_reg_interval = 16
         self.max_epoch = 811
         self.aug_epochs = 811  # 前几轮进行mixup、cutmix、mosaic
 
@@ -39,11 +37,24 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
 
         # learning_rate
         self.scheduler = "warm_piecewisedecay"
-        self.warmup_epochs = 5
-        self.basic_lr_per_img = 0.01 / 192.0
+        self.warmup_epochs = -1
+        # self.basic_lr_per_img = 0.0025 / 64.0
+        self.basic_lr_per_img = 0.0025 / 2.0
         self.start_factor = 0.0
         self.decay_gamma = 0.1
-        self.milestones_epoch = [649, 730]
+        self.milestones_epoch = [99999998, 99999999]
+        self.optimizer_cfg = dict(
+            generator=dict(
+                beta1=0.0,
+                beta2=0.99,
+                epsilon=1e-8,
+            ),
+            discriminator=dict(
+                beta1=0.0,
+                beta2=0.99,
+                epsilon=1e-8,
+            ),
+        )
 
         # -----------------  testing config ------------------ #
         self.noise_mode = 'const'   # ['const', 'random', 'none']
@@ -92,6 +103,18 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             epilogue_kwargs=dict(mbstd_group_size=8,),
         )
 
+        # ---------------- dataset config ---------------- #
+        self.dataroot = '../data/data42681/afhq/train/cat'
+        # self.dataroot = '../data/data42681/afhq/train/dog'
+        self.dataset_train_cfg = dict(
+            resolution=self.img_resolution,
+            use_labels=False,
+            xflip=False,
+            len_phases=4,
+        )
+        # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
+        self.data_num_workers = 2
+
     def get_model(self):
         from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator
         from mmgan.models import StyleGANv2ADAModel
@@ -110,12 +133,12 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
     def get_data_loader(
         self, batch_size, is_distributed, cache_img=False
     ):
-        from mmdet.data import (
-            PPYOLO_COCOTrainDataset,
+        from mmgan.data import (
+            StyleGANv2ADADataset,
             InfiniteSampler,
             worker_init_reset_seed,
         )
-        from mmdet.utils import (
+        from mmgan.utils import (
             wait_for_the_master,
             get_local_rank,
         )
@@ -123,22 +146,13 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         local_rank = get_local_rank()
 
         with wait_for_the_master(local_rank):
-            # 训练时的数据预处理
-            sample_transforms = get_sample_transforms(self)
-            batch_transforms = get_batch_transforms(self)
-
-            train_dataset = PPYOLO_COCOTrainDataset(
-                data_dir=self.data_dir,
-                json_file=self.train_ann,
-                ann_folder=self.ann_folder,
-                name=self.train_image_folder,
-                cfg=self,
-                sample_transforms=sample_transforms,
+            train_dataset = StyleGANv2ADADataset(
+                dataroot=self.dataroot,
                 batch_size=batch_size,
+                **self.dataset_train_cfg,
             )
 
         self.dataset = train_dataset
-        self.n_layers = train_dataset.n_layers
 
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
@@ -170,22 +184,35 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
     def preprocess(self, inputs, targets, tsize):
         return 1
 
-    def get_optimizer(self, batch_size, param_groups, momentum, weight_decay):
-        if "optimizer" not in self.__dict__:
-            if self.warmup_epochs > 0:
-                lr = self.basic_lr_per_img * batch_size * self.start_factor
-            else:
-                lr = self.basic_lr_per_img * batch_size
+    def get_optimizer(self, lr, name):
+        import itertools
+        if name == 'G':
+            if "optimizer_G" not in self.__dict__:
+                if self.warmup_epochs > 0:
+                    lr = lr * self.start_factor
 
-            optimizer = torch.optim.SGD(
-                param_groups, lr=lr, momentum=momentum, weight_decay=weight_decay
-            )
-            self.optimizer = optimizer
+                optimizer = torch.optim.Adam(
+                    itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=lr,
+                    betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
+                    eps=self.optimizer_cfg['generator']['epsilon']
+                )
+                self.optimizer_G = optimizer
+            return self.optimizer_G
+        elif name == 'D':
+            if "optimizer_D" not in self.__dict__:
+                if self.warmup_epochs > 0:
+                    lr = lr * self.start_factor
 
-        return self.optimizer
+                optimizer = torch.optim.Adam(
+                    self.model.discriminator.parameters(), lr=lr,
+                    betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
+                    eps=self.optimizer_cfg['discriminator']['epsilon']
+                )
+                self.optimizer_D = optimizer
+            return self.optimizer_D
 
     def get_lr_scheduler(self, lr, iters_per_epoch):
-        from mmdet.utils import LRScheduler
+        from mmgan.utils import LRScheduler
 
         scheduler = LRScheduler(
             self.scheduler,
@@ -200,7 +227,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         return scheduler
 
     def get_eval_loader(self, batch_size, is_distributed, testdev=False):
-        from mmdet.data import PPYOLO_COCOEvalDataset
+        from mmgan.data import StyleGANv2ADATestDataset
 
         # 预测时的数据预处理
         decodeImage = DecodeImage(**self.decodeImage)
@@ -208,7 +235,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         normalizeImage = NormalizeImage(**self.normalizeImage)
         permute = Permute(**self.permute)
         transforms = [decodeImage, resizeImage, normalizeImage, permute]
-        val_dataset = PPYOLO_COCOEvalDataset(
+        val_dataset = StyleGANv2ADATestDataset(
             data_dir=self.data_dir,
             json_file=self.val_ann if not testdev else "image_info_test-dev2017.json",
             ann_folder=self.ann_folder,
@@ -236,19 +263,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         return val_loader
 
     def get_evaluator(self, batch_size, is_distributed, testdev=False):
-        from mmdet.evaluators import COCOEvaluator
-
-        val_loader = self.get_eval_loader(batch_size, is_distributed, testdev)
-        evaluator = COCOEvaluator(
-            dataloader=val_loader,
-            img_size=self.test_size,
-            confthre=-99.0,
-            nmsthre=-99.0,
-            num_classes=self.num_classes,
-            archi_name=self.archi_name,
-            testdev=testdev,
-        )
-        return evaluator
+        pass
 
     def eval(self, model, evaluator, is_distributed, half=False):
         return evaluator.evaluate_ppyolo(model, is_distributed, half)

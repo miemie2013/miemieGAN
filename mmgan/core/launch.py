@@ -13,7 +13,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-import mmdet.utils.dist as comm
+import mmgan.utils.dist as comm
 
 __all__ = ["launch"]
 
