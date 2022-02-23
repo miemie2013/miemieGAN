@@ -40,7 +40,7 @@ python tools/convert_weights.py -f exps/ppyolo/ppyolov2_r101vd_365e.py -c ResNet
 
 
 ----------------------- 预测 -----------------------
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c ppyolo_2x.pth --seeds 18,19 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c ppyolo_2x.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
 

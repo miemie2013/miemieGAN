@@ -63,18 +63,16 @@ class StyleGANv2ADAModel(torch.nn.Module):
         pl_weight=2.0,
     ):
         super(StyleGANv2ADAModel, self).__init__()
-        self.nets = OrderedDict()
         self.optimizers = OrderedDict()
         self.metrics = OrderedDict()
         self.losses = OrderedDict()
         self.visual_items = OrderedDict()
-        self.nets_ema = {}
-        self.nets['synthesis'] = synthesis
-        self.nets_ema['synthesis'] = synthesis_ema
-        self.nets['mapping'] = mapping
-        self.nets_ema['mapping'] = mapping_ema
+        self.synthesis = synthesis
+        self.synthesis_ema = synthesis_ema
+        self.mapping = mapping
+        self.mapping_ema = mapping_ema
         if discriminator:
-            self.nets['discriminator'] = discriminator
+            self.discriminator = discriminator
         self.c_dim = mapping.c_dim
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim
@@ -95,7 +93,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 self.phases += [dict(name=name + 'main', interval=1)]
                 self.phases += [dict(name=name + 'reg', interval=reg_interval)]
 
-        self.z_dim = self.nets['mapping'].z_dim
+        self.z_dim = self.mapping.z_dim
         self.batch_idx = 0
 
         # loss config.
@@ -457,13 +455,13 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.batch_idx += 1
 
     def test_iter(self, metrics=None):
-        self.nets_ema['synthesis'].eval()
-        self.nets_ema['mapping'].eval()
+        self.synthesis_ema.eval()
+        self.mapping_ema.eval()
 
         z = self.input['z']
 
         class_idx = None
-        label = paddle.zeros([1, self.c_dim])
+        label = torch.zeros([1, self.c_dim])
         if self.c_dim != 0:
             if class_idx is None:
                 print('Must specify class label with --class when using a conditional network')
@@ -475,8 +473,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
         noise_mode = 'const'
         truncation_psi = 1.0
 
-        ws = self.nets_ema['mapping'](z, label, truncation_psi=truncation_psi, truncation_cutoff=None)
-        img = self.nets_ema['synthesis'](ws, noise_mode=noise_mode)
+        ws = self.mapping_ema(z, label, truncation_psi=truncation_psi, truncation_cutoff=None)
+        img = self.synthesis_ema(ws, noise_mode=noise_mode)
 
         img = (paddle.transpose(img, (0, 2, 3, 1)) * 127.5 + 128)
         img = paddle.clip(img, 0, 255)
@@ -484,5 +482,5 @@ class StyleGANv2ADAModel(torch.nn.Module):
         img_rgb = img.numpy()[0]  # pgan是将RGB格式的图片进行保存的。
 
         self.visual_items['reference'] = img_rgb
-        self.nets_ema['synthesis'].train()
-        self.nets_ema['mapping'].train()
+        self.synthesis_ema.train()
+        self.mapping_ema.train()

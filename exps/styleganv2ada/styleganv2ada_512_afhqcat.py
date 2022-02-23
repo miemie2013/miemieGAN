@@ -17,6 +17,6 @@ class Exp(StyleGANv2ADA_Method_Exp):
         isDebug = True if sys.gettrace() else False
         if isDebug:
             print('Debug Mode.')
-            self.data_dir = '../' + self.data_dir
-            self.cls_names = '../' + self.cls_names
-            self.output_dir = '../' + self.output_dir
+            # self.data_dir = '../' + self.data_dir
+            # self.cls_names = '../' + self.cls_names
+            # self.output_dir = '../' + self.output_dir

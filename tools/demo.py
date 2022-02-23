@@ -31,17 +31,13 @@ def make_parser():
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 
     parser.add_argument(
-        "--path", default="./assets/dog.jpg", help="path to images or video"
-    )
-    parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
-    parser.add_argument(
         "--save_result",
         action="store_true",
         help="whether to save the inference result of image/video",
     )
     parser.add_argument(
         "--seeds",
-        default="18,19",
+        default="85,100,75,458,1500",
         type=str,
         help="random seeds",
     )
@@ -68,27 +64,6 @@ def make_parser():
         action="store_true",
         help="Adopting mix precision evaluating.",
     )
-    parser.add_argument(
-        "--legacy",
-        dest="legacy",
-        default=False,
-        action="store_true",
-        help="To be compatible with older versions",
-    )
-    parser.add_argument(
-        "--fuse",
-        dest="fuse",
-        default=False,
-        action="store_true",
-        help="Fuse conv and bn for testing.",
-    )
-    parser.add_argument(
-        "--trt",
-        dest="trt",
-        default=False,
-        action="store_true",
-        help="Using TensorRT model for testing.",
-    )
     return parser
 
 
@@ -101,93 +76,6 @@ def get_image_list(path):
             if ext in IMAGE_EXT:
                 image_names.append(apath)
     return image_names
-
-
-class YOLOXPredictor(object):
-    def __init__(
-        self,
-        model,
-        exp,
-        trt_file=None,
-        decoder=None,
-        device="cpu",
-        fp16=False,
-        legacy=False,
-    ):
-        self.model = model
-        self.cls_names = get_classes(exp.cls_names)
-        self.decoder = decoder
-        self.num_classes = exp.num_classes
-        self.confthre = exp.test_conf
-        self.nmsthre = exp.nmsthre
-        self.test_size = exp.test_size
-        self.device = device
-        self.fp16 = fp16
-        self.preproc = ValTransform(legacy=legacy)
-        if trt_file is not None:
-            from torch2trt import TRTModule
-
-            model_trt = TRTModule()
-            model_trt.load_state_dict(torch.load(trt_file))
-
-            x = torch.ones(1, 3, exp.test_size[0], exp.test_size[1]).cuda()
-            self.model(x)
-            self.model = model_trt
-
-    def inference(self, img):
-        img_info = {"id": 0}
-        if isinstance(img, str):
-            img_info["file_name"] = os.path.basename(img)
-            img = cv2.imread(img)
-        else:
-            img_info["file_name"] = None
-
-        height, width = img.shape[:2]
-        img_info["height"] = height
-        img_info["width"] = width
-        img_info["raw_img"] = img
-
-        ratio = min(self.test_size[0] / img.shape[0], self.test_size[1] / img.shape[1])
-        img_info["ratio"] = ratio
-
-        img, _ = self.preproc(img, None, self.test_size)
-        img = torch.from_numpy(img).unsqueeze(0)
-        img = img.float()
-        if self.device == "gpu":
-            img = img.cuda()
-            if self.fp16:
-                img = img.half()  # to FP16
-
-        with torch.no_grad():
-            t0 = time.time()
-            outputs = self.model(img)
-            if self.decoder is not None:
-                outputs = self.decoder(outputs, dtype=outputs.type())
-            outputs = postprocess(
-                outputs, self.num_classes, self.confthre,
-                self.nmsthre, class_agnostic=True
-            )
-            logger.info("Infer time: {:.4f}s".format(time.time() - t0))
-        return outputs, img_info
-
-    def visual(self, output, img_info, cls_conf=0.35):
-        output = output[0]
-        ratio = img_info["ratio"]
-        img = img_info["raw_img"]
-        if output is None:
-            return img
-        output = output.cpu()
-
-        bboxes = output[:, 0:4]
-
-        # preprocessing: resize
-        bboxes /= ratio
-
-        cls = output[:, 6]
-        scores = output[:, 4] * output[:, 5]
-
-        vis_res = vis(img, bboxes, scores, cls, cls_conf, self.cls_names)
-        return vis_res
 
 
 class PPYOLOPredictor(object):
@@ -277,152 +165,6 @@ class PPYOLOPredictor(object):
         return vis_res
 
 
-class FCOSPredictor(object):
-    def __init__(
-        self,
-        model,
-        exp,
-        trt_file=None,
-        device="cpu",
-        fp16=False,
-        legacy=False,
-    ):
-        self.model = model
-        self.cls_names = get_classes(exp.cls_names)
-        self.num_classes = exp.num_classes
-        self.confthre = exp.nms_cfg['post_threshold']
-        self.test_size = exp.test_size
-        self.device = device
-        self.fp16 = fp16
-
-        # 预测时的数据预处理
-        self.context = exp.context
-
-        # sample_transforms
-        self.to_rgb = exp.decodeImage['to_rgb']
-        normalizeImage = NormalizeImage(**exp.normalizeImage)
-        target_size = self.test_size[0]
-        max_size = self.test_size[1]
-        resizeImage = ResizeImage(target_size=target_size, resize_box=False, interp=exp.resizeImage['interp'],
-                                  max_size=max_size, use_cv2=exp.resizeImage['use_cv2'])
-        permute = Permute(**exp.permute)
-
-        # batch_transforms
-        padBatch = PadBatch(**exp.padBatch)
-
-        self.preproc = FCOSValTransform(self.context, self.to_rgb, normalizeImage, resizeImage, permute, padBatch)
-
-        # TensorRT
-        if trt_file is not None:
-            from torch2trt import TRTModule
-
-            model_trt = TRTModule()
-            model_trt.load_state_dict(torch.load(trt_file))
-
-            x = torch.ones(1, 3, exp.test_size[0], exp.test_size[1]).cuda()
-            self.model(x)
-            self.model = model_trt
-
-    def inference(self, img):
-        img_info = {"id": 0}
-        if isinstance(img, str):
-            img_info["file_name"] = os.path.basename(img)
-            img = cv2.imread(img)
-        else:
-            img_info["file_name"] = None
-
-        height, width = img.shape[:2]
-        img_info["height"] = height
-        img_info["width"] = width
-        img_info["raw_img"] = img
-
-        img, im_scale = self.preproc(img)
-        img = torch.from_numpy(img)
-        im_scale = torch.from_numpy(im_scale)
-        img = img.float()
-        im_scale = im_scale.float()
-        if self.device == "gpu":
-            img = img.cuda()
-            im_scale = im_scale.cuda()
-            if self.fp16:
-                img = img.half()  # to FP16
-                im_scale = im_scale.half()  # to FP16
-
-        with torch.no_grad():
-            t0 = time.time()
-            outputs = self.model(img, im_scale)
-            logger.info("Infer time: {:.4f}s".format(time.time() - t0))
-        return outputs, img_info
-
-    def visual(self, output, img_info, cls_conf=0.35):
-        output = output[0]
-        img = img_info["raw_img"]
-        # matrixNMS返回的结果为-1时表示没有物体
-        if output[0][0] < -0.5:
-            return img
-        output = output.cpu()
-
-        bboxes = output[:, 2:6]
-
-        cls = output[:, 0]
-        scores = output[:, 1]
-
-        # vis_res = vis2(img, bboxes, scores, cls, cls_conf, self.cls_names)
-        vis_res = vis(img, bboxes, scores, cls, cls_conf, self.cls_names)
-        return vis_res
-
-
-def image_demo(predictor, vis_folder, path, current_time, save_result):
-    if os.path.isdir(path):
-        files = get_image_list(path)
-    else:
-        files = [path]
-    files.sort()
-    for image_name in files:
-        outputs, img_info = predictor.inference(image_name)
-        result_image = predictor.visual(outputs, img_info, predictor.confthre)
-        if save_result:
-            save_folder = os.path.join(
-                vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-            )
-            os.makedirs(save_folder, exist_ok=True)
-            save_file_name = os.path.join(save_folder, os.path.basename(image_name))
-            logger.info("Saving detection result in {}".format(save_file_name))
-            cv2.imwrite(save_file_name, result_image)
-        ch = cv2.waitKey(0)
-        if ch == 27 or ch == ord("q") or ch == ord("Q"):
-            break
-
-
-def imageflow_demo(predictor, vis_folder, current_time, args):
-    cap = cv2.VideoCapture(args.path if args.demo == "video" else args.camid)
-    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)  # float
-    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)  # float
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    save_folder = os.path.join(
-        vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-    )
-    os.makedirs(save_folder, exist_ok=True)
-    if args.demo == "video":
-        save_path = os.path.join(save_folder, args.path.split("/")[-1])
-    else:
-        save_path = os.path.join(save_folder, "camera.mp4")
-    logger.info(f"video save_path is {save_path}")
-    vid_writer = cv2.VideoWriter(
-        save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height))
-    )
-    while True:
-        ret_val, frame = cap.read()
-        if ret_val:
-            outputs, img_info = predictor.inference(frame)
-            result_frame = predictor.visual(outputs[0], img_info, predictor.confthre)
-            if args.save_result:
-                vid_writer.write(result_frame)
-            ch = cv2.waitKey(1)
-            if ch == 27 or ch == ord("q") or ch == ord("Q"):
-                break
-        else:
-            break
 
 
 def main(exp, args):
@@ -436,9 +178,6 @@ def main(exp, args):
     if args.save_result:
         vis_folder = os.path.join(file_name, "vis_res")
         os.makedirs(vis_folder, exist_ok=True)
-
-    if args.trt:
-        args.device = "gpu"
 
     logger.info("Args: {}".format(args))
 
@@ -454,50 +193,45 @@ def main(exp, args):
             model.half()  # to FP16
     model.eval()
 
-    predictor = None
     # 不同的算法输入不同，新增算法时这里也要增加elif
     if archi_name == 'StyleGANv2ADA':
         # 加载模型权重
-        if not args.trt:
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            ckpt = torch.load(ckpt_file, map_location="cpu")
-            # load the model state dict
-            model.load_state_dict(ckpt["model"])
-            logger.info("loaded checkpoint done.")
-
-        # 卷积层和bn层合并为一个卷积层
-        if args.fuse:
-            logger.info("\tFusing model...")
-            model = fuse_model(model)
-
-        if args.trt:
-            assert not args.fuse, "TensorRT model is not support model fusing!"
-            trt_file = os.path.join(file_name, "model_trt.pth")
-            assert os.path.exists(
-                trt_file
-            ), "TensorRT model is not found!\n Run python3 tools/trt.py first!"
-            model.head.decode_in_inference = False
-            decoder = model.head.decode_outputs
-            logger.info("Using TensorRT to inference")
+        if args.ckpt is None:
+            ckpt_file = os.path.join(file_name, "best_ckpt.pth")
         else:
-            trt_file = None
-            decoder = None
+            ckpt_file = args.ckpt
+        logger.info("loading checkpoint")
+        ckpt = torch.load(ckpt_file, map_location="cpu")
+        # load the model state dict
+        model.load_state_dict(ckpt["model"])
+        logger.info("loaded checkpoint done.")
 
-        predictor = YOLOXPredictor(
-            model, exp, trt_file, decoder,
-            args.device, args.fp16, args.legacy,
-        )
+        seeds = args.seeds
+        seeds = seeds.split(',')
+        seeds = [int(seed) for seed in seeds]
+
+        for seed in seeds:
+            z = np.random.RandomState(seed).randn(model.z_dim, )
+            z = torch.from_numpy(z)
+            z = z.float()
+            if args.device == "gpu":
+                z = z.cuda()
+                if args.fp16:
+                    z = z.half()  # to FP16
+            data = {
+                'z': z,
+            }
+            model.setup_input(data)
+            with torch.no_grad():
+                model.test_iter()
+
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
-    current_time = time.localtime()
-    if args.demo == "image":
-        image_demo(predictor, vis_folder, args.path, current_time, args.save_result)
-    elif args.demo == "video" or args.demo == "webcam":
-        imageflow_demo(predictor, vis_folder, current_time, args)
+    # current_time = time.localtime()
+    # if args.demo == "image":
+    #     image_demo(predictor, vis_folder, args.path, current_time, args.save_result)
+    # elif args.demo == "video" or args.demo == "webcam":
+    #     imageflow_demo(predictor, vis_folder, current_time, args)
 
 
 if __name__ == "__main__":
@@ -508,7 +242,6 @@ if __name__ == "__main__":
         print('Debug Mode.')
         args.exp_file = '../' + args.exp_file
         args.ckpt = '../' + args.ckpt   # 如果是绝对路径，把这一行注释掉
-        args.path = '../' + args.path   # 如果是绝对路径，把这一行注释掉
     exp = get_exp(args.exp_file)
 
     main(exp, args)
