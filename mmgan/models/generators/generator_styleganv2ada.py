@@ -587,7 +587,10 @@ def modulated_conv2d(
     x = conv2d_resample(x=x, w=w.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
     x = x.reshape((batch_size, -1, *x.shape[2:]))
     if noise is not None:
-        x = x + noise
+        # 注意，在最高的N个分辨率中，x是float16，而noise是float32，若写作x = x + noise，则x是float32，这是个错误的写法；
+        # 若写作x = x.add_(noise)，则x是float16；
+        # 若写作x = x + noise.to(x.dtype)，则x是float16。
+        x = x.add_(noise)
     return x
 
 

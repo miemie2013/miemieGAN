@@ -455,9 +455,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.batch_idx += 1
 
     def test_iter(self, metrics=None):
-        self.synthesis_ema.eval()
-        self.mapping_ema.eval()
-
         z = self.input['z']
 
         class_idx = None
@@ -476,11 +473,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
         ws = self.mapping_ema(z, label, truncation_psi=truncation_psi, truncation_cutoff=None)
         img = self.synthesis_ema(ws, noise_mode=noise_mode)
 
-        img = (paddle.transpose(img, (0, 2, 3, 1)) * 127.5 + 128)
-        img = paddle.clip(img, 0, 255)
-        img = paddle.cast(img, dtype=paddle.uint8)
-        img_rgb = img.numpy()[0]  # pgan是将RGB格式的图片进行保存的。
-
-        self.visual_items['reference'] = img_rgb
-        self.synthesis_ema.train()
-        self.mapping_ema.train()
+        img = img.permute((0, 2, 3, 1)) * 127.5 + 128
+        img = img.clamp(0, 255)
+        img = img.to(torch.uint8)
+        img_rgb = img.cpu().detach().numpy()[0]
+        img_bgr = img_rgb[:, :, [2, 1, 0]]
+        return img_bgr

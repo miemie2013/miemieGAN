@@ -202,16 +202,16 @@ def main(exp, args):
             ckpt_file = args.ckpt
         logger.info("loading checkpoint")
         ckpt = torch.load(ckpt_file, map_location="cpu")
-        # load the model state dict
         model.load_state_dict(ckpt["model"])
         logger.info("loaded checkpoint done.")
 
         seeds = args.seeds
         seeds = seeds.split(',')
         seeds = [int(seed) for seed in seeds]
+        current_time = time.localtime()
 
         for seed in seeds:
-            z = np.random.RandomState(seed).randn(model.z_dim, )
+            z = np.random.RandomState(seed).randn(1, model.z_dim)
             z = torch.from_numpy(z)
             z = z.float()
             if args.device == "gpu":
@@ -223,7 +223,15 @@ def main(exp, args):
             }
             model.setup_input(data)
             with torch.no_grad():
-                model.test_iter()
+                img_bgr = model.test_iter()
+                if args.save_result:
+                    save_folder = os.path.join(
+                        vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
+                    )
+                    os.makedirs(save_folder, exist_ok=True)
+                    save_file_name = os.path.join(save_folder, f'seed{seed:08d}.png')
+                    logger.info("Saving generation result in {}".format(save_file_name))
+                    cv2.imwrite(save_file_name, img_bgr)
 
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
