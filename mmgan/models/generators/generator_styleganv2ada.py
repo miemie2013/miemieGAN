@@ -458,7 +458,7 @@ class FullyConnectedLayer(nn.Module):
             x = torch.addmm(b.unsqueeze(0), x, w.t())
         else:
             x = x.matmul(w.t())
-            x = bias_act.bias_act(x, b, act=self.activation)
+            x = bias_act(x, b, act=self.activation)
         return x
 
 
@@ -504,69 +504,37 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
             setattr(self, f'fc{idx}', layer)
 
         if num_ws is not None and w_avg_beta is not None:
-            self.register_buffer('w_avg', paddle.zeros([w_dim]))
+            self.register_buffer('w_avg', torch.zeros([w_dim]))
 
-    def forward(self, z, c, dic2, pre_name, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
+    def forward(self, z, c, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
         # Embed, normalize, and concat inputs.
         x = None
         if self.z_dim > 0:
-            # 转换类型会导致与pytorch的梯度不同。
-            # temp1 = paddle.cast(z, dtype='float32')
-            x = normalize_2nd_moment(z)
-
-            dx_dz1 = paddle.grad(
-                outputs=[x.sum()],
-                inputs=[z],
-                create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-                retain_graph=True)[0]
-            aaaaaaaaaaa1 = dic2[pre_name + '_dx_dz1']
-            aaaaaaaaaaa2 = dx_dz1.numpy()
-            ddd = np.sum((dic2[pre_name + '_dx_dz1'] - dx_dz1.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
+            x = normalize_2nd_moment(z.to(torch.float32))
         if self.c_dim > 0:
-            temp2 = paddle.cast(c, dtype='float32')
-            y = normalize_2nd_moment(self.embed(temp2))
-            x = paddle.concat([x, y], 1) if x is not None else y
+            y = normalize_2nd_moment(self.embed(c.to(torch.float32)))
+            x = torch.cat([x, y], dim=1) if x is not None else y
 
         # Main layers.
         for idx in range(self.num_layers):
             layer = getattr(self, f'fc{idx}')
-            x = layer(x, dic2, pre_name + '_fc%d'%idx)
-        dx_dz2 = paddle.grad(
-            outputs=[x.sum()],
-            inputs=[z],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + '_dx_dz2']
-        aaaaaaaaaaa2 = dx_dz2.numpy()
-        ddd = np.sum((dic2[pre_name + '_dx_dz2'] - dx_dz2.numpy()) ** 2)
-        print('ddd=%.6f' % ddd)
+            x = layer(x)
+
         # Update moving average of W.
         if self.w_avg_beta is not None and self.training and not skip_w_avg_update:
-            temp3 = x.detach().mean(axis=0)
-            # temp3 = temp3.lerp(self.w_avg, self.w_avg_beta)
-            temp3 = temp3 + self.w_avg_beta * (self.w_avg - temp3)
-            # self.w_avg.copy_(temp3)
-            self.w_avg = temp3
+            self.w_avg.copy_(x.detach().mean(dim=0).lerp(self.w_avg, self.w_avg_beta))
 
         # Broadcast.
         if self.num_ws is not None:
-            x = x.unsqueeze(1).tile([1, self.num_ws, 1])
-            # new_x = []
-            # for j in range(self.num_ws):
-            #     new_x.append(x.unsqueeze(1).clone())
-            # new_x = paddle.concat(new_x, 1)
-            # x = new_x
+            x = x.unsqueeze(1).repeat([1, self.num_ws, 1])
 
         # Apply truncation.
         if truncation_psi != 1:
             assert self.w_avg_beta is not None
             if self.num_ws is None or truncation_cutoff is None:
-                # x = self.w_avg.lerp(x, truncation_psi)
-                x = self.w_avg + truncation_psi * (x - self.w_avg)
+                x = self.w_avg.lerp(x, truncation_psi)
             else:
-                # x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
-                x[:, :truncation_cutoff] = self.w_avg + truncation_psi * (x[:, :truncation_cutoff] - self.w_avg)
+                x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
         return x
 
 def modulated_conv2d(
@@ -584,20 +552,11 @@ def modulated_conv2d(
 ):
     batch_size = x.shape[0]
     out_channels, in_channels, kh, kw = weight.shape
-    # misc.assert_shape(weight, [out_channels, in_channels, kh, kw]) # [OIkk]
-    # misc.assert_shape(x, [batch_size, in_channels, None, None]) # [NIHW]
-    # misc.assert_shape(styles, [batch_size, in_channels]) # [NI]
 
     # Pre-normalize inputs to avoid FP16 overflow.
-    if x.dtype == paddle.float16 and demodulate:
-        d0, d1, d2, d3 = weight.shape
-        weight_temp = weight.reshape((d0, d1, d2 * d3))
-        weight_temp = paddle.norm(weight_temp, p=np.inf, axis=[1, 2], keepdim=True)
-        weight_temp = weight_temp.reshape((d0, 1, 1, 1))
-        weight = weight * (1 / np.sqrt(in_channels * kh * kw) / weight_temp) # max_Ikk
-        styles_temp = paddle.norm(styles, p=np.inf, axis=1, keepdim=True)
-        styles = styles / styles_temp # max_I
-        print('aaaaaaaaaaaaaaaaaa')
+    if x.dtype == torch.float16 and demodulate:
+        weight = weight * (1 / np.sqrt(in_channels * kh * kw) / weight.norm(float('inf'), dim=[1,2,3], keepdim=True)) # max_Ikk
+        styles = styles / styles.norm(float('inf'), dim=1, keepdim=True) # max_I
 
     # Calculate per-sample weights and demodulation coefficients.
     w = None
@@ -606,182 +565,31 @@ def modulated_conv2d(
         w = weight.unsqueeze(0)  # [NOIkk]
         w = w * styles.reshape((batch_size, 1, -1, 1, 1))  # [NOIkk]
     if demodulate:
-        dcoefs = (w.square().sum(axis=[2, 3, 4]) + 1e-8).rsqrt()  # [NO]
+        dcoefs = (w.square().sum(dim=[2, 3, 4]) + 1e-8).rsqrt()  # [NO]
     if demodulate and fused_modconv:
         w = w * dcoefs.reshape((batch_size, -1, 1, 1, 1))  # [NOIkk]
 
     # Execute by scaling the activations before and after the convolution.
     if not fused_modconv:
-        assert styles.dtype == x.dtype
-        # x = x * paddle.cast(styles, dtype=x.dtype).reshape((batch_size, -1, 1, 1))
-        x = x * styles.reshape((batch_size, -1, 1, 1))
-        assert weight.dtype == x.dtype
-        # x = conv2d_resample(x=x, w=paddle.cast(weight, dtype=x.dtype), filter=resample_filter, up=up, down=down, padding=padding, flip_weight=flip_weight)
-        x = conv2d_resample(x=x, w=weight, filter=resample_filter, up=up, down=down, padding=padding, flip_weight=flip_weight)
+        x = x * styles.to(x.dtype).reshape((batch_size, -1, 1, 1))
+        x = conv2d_resample(x=x, w=weight.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, flip_weight=flip_weight)
         if demodulate and noise is not None:
-            assert dcoefs.dtype == x.dtype
-            assert noise.dtype == x.dtype
-            # x = x * paddle.cast(dcoefs, dtype=x.dtype).reshape((batch_size, -1, 1, 1)) + paddle.cast(noise, dtype=x.dtype)
-            x = x * paddle.cast(dcoefs, dtype=x.dtype).reshape((batch_size, -1, 1, 1)) + paddle.cast(noise, dtype=x.dtype)
+            x = x * dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1)) + noise.to(x.dtype)
         elif demodulate:
-            assert dcoefs.dtype == x.dtype
-            # x = x * paddle.cast(dcoefs, dtype=x.dtype).reshape((batch_size, -1, 1, 1))
-            x = x * dcoefs.reshape((batch_size, -1, 1, 1))
+            x = x * dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1))
         elif noise is not None:
-            assert noise.dtype == x.dtype
-            # x = x + paddle.cast(noise, dtype=x.dtype)
-            x = x + noise
+            x = x + noise.to(x.dtype)
         return x
 
     # Execute as one fused op using grouped convolution.
     x = x.reshape((1, -1, *x.shape[2:]))
     w = w.reshape((-1, in_channels, kh, kw))
-    assert w.dtype == x.dtype
-    # x = conv2d_resample(x=x, w=paddle.cast(w, dtype=x.dtype), filter=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
-    x = conv2d_resample(x=x, w=w, filter=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
+    x = conv2d_resample(x=x, w=w.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
     x = x.reshape((batch_size, -1, *x.shape[2:]))
     if noise is not None:
         x = x + noise
     return x
 
-
-class Spade_Conv2dLayer(nn.Module):
-    def __init__(self,
-                 in_channels,  # Number of input channels.
-                 out_channels,  # Number of output channels.
-                 kernel_size,  # Width and height of the convolution kernel.
-                 bias=True,  # Apply additive bias before the activation function?
-                 activation='relu',  # Activation function: 'relu', 'lrelu', etc.
-                 up=1,  # Integer upsampling factor.
-                 down=1,  # Integer downsampling factor.
-                 resample_filter=[1, 3, 3, 1],  # Low-pass filter to apply when resampling activations.
-                 conv_clamp=None,  # Clamp the output to +-X, None = disable clamping.
-                 channels_last=False,  # Expect the input to have memory_format=channels_last?
-                 trainable=True,  # Update the weights of this layer during training?
-                 ):
-        super().__init__()
-        self.activation = activation
-        self.up = up
-        self.down = down
-        self.conv_clamp = conv_clamp
-        self.register_buffer('resample_filter', upfirdn2d_setup_filter(resample_filter))
-        self.padding = kernel_size // 2
-        self.weight_gain = 1 / np.sqrt(in_channels * (kernel_size ** 2))
-
-        def_gain = 1.0
-        if activation in ['relu', 'lrelu', 'swish']:  # 除了这些激活函数的def_gain = np.sqrt(2)，其余激活函数的def_gain = 1.0
-            def_gain = np.sqrt(2)
-        self.act_gain = def_gain
-
-        # 假设屎山的channels_last都是False
-        assert channels_last == False
-        # memory_format = torch.channels_last if channels_last else torch.contiguous_format
-        # weight = torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format)
-        self.bias = None
-        if trainable:
-            self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                                default_initializer=paddle.nn.initializer.Normal())
-            if bias is not None:
-                if bias != False:
-                    self.bias = self.create_parameter([out_channels, ],
-                                                      default_initializer=paddle.nn.initializer.Constant(0.0))
-        else:
-            self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                                default_initializer=paddle.nn.initializer.Normal())
-            self.weight.stop_gradient = True
-            if bias is not None:
-                if bias != False:
-                    self.bias = self.create_parameter([out_channels, ],
-                                                      default_initializer=paddle.nn.initializer.Constant(0.0))
-                    self.bias.stop_gradient = True
-
-    def forward(self, x, gain=1, no_act=False):
-        w = self.weight * self.weight_gain
-        b = paddle.cast(self.bias, dtype=x.dtype) if self.bias is not None else None
-
-        if not no_act:
-            act_gain = self.act_gain * gain
-            act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
-            x = bias_act(x, b, act=self.activation, gain=act_gain, clamp=act_clamp)
-
-        flip_weight = (self.up == 1)  # slightly faster
-        x = conv2d_resample(x=x, w=paddle.cast(w, dtype=x.dtype), filter=self.resample_filter, up=self.up, down=self.down,
-                            padding=self.padding, flip_weight=flip_weight)
-
-        return x
-
-class Spade_Norm_Block(nn.Module):
-    def __init__(self,
-        in_channels,
-        norm_channels,
-    ):
-        super().__init__()
-        self.conv_mlp = Spade_Conv2dLayer(in_channels, norm_channels, kernel_size=3, bias=False)
-        self.conv_mlp_act = nn.ReLU()
-        self.conv_gamma = Spade_Conv2dLayer(norm_channels, norm_channels, kernel_size=3, bias=False)
-        self.conv_beta = Spade_Conv2dLayer(norm_channels, norm_channels, kernel_size=3, bias=False)
-
-        self.param_free_norm = nn.InstanceNorm2D(norm_channels, weight_attr=False, bias_attr=False)
-
-    def forward(self, x, denorm_feats):
-        normalized = self.param_free_norm(x)
-        actv = self.conv_mlp(denorm_feats, no_act=True)
-        actv = self.conv_mlp_act(actv)
-        gamma = self.conv_gamma(actv, no_act=True)
-        beta = self.conv_beta(actv, no_act=True)
-
-        out = normalized * (1+gamma) + beta
-        return out
-
-
-class Spade_ResBlock(nn.Module):
-    def __init__(self,
-                 in_channels,  # Number of input channels.
-                 out_channels,  # Number of output channels.
-                 kernel_size=3,  # Width and height of the convolution kernel.
-                 bias=True,  # Apply additive bias before the activation function?
-                 activation='linear',  # Activation function: 'relu', 'lrelu', etc.
-                 up=1,  # Integer upsampling factor.
-                 down=1,  # Integer downsampling factor.
-                 resample_filter=[1, 3, 3, 1],  # Low-pass filter to apply when resampling activations.
-                 conv_clamp=None,  # Clamp the output to +-X, None = disable clamping.
-                 channels_last=False,  # Expect the input to have memory_format=channels_last?
-                 trainable=True,  # Update the weights of this layer during training?
-                 resolution=128,
-                 ):
-        super().__init__()
-        self.register_buffer('resample_filter', upfirdn2d_setup_filter(resample_filter))
-
-        self.conv = Spade_Conv2dLayer(in_channels, in_channels, kernel_size=3, bias=False,
-                                      resample_filter=resample_filter, conv_clamp=conv_clamp,
-                                      channels_last=channels_last)
-        self.conv0 = Spade_Conv2dLayer(in_channels, out_channels, kernel_size=3, bias=False,
-                                       resample_filter=resample_filter, conv_clamp=conv_clamp,
-                                       channels_last=channels_last)
-        self.conv1 = Spade_Conv2dLayer(out_channels, out_channels, kernel_size=3, bias=False,
-                                       resample_filter=resample_filter, conv_clamp=conv_clamp,
-                                       channels_last=channels_last)
-        self.skip = Spade_Conv2dLayer(in_channels, out_channels, kernel_size=1, bias=False,
-                                      resample_filter=resample_filter, conv_clamp=conv_clamp,
-                                      channels_last=channels_last)
-
-        if resolution == 128:
-            feat_channels = 128 * 2
-        else:
-            feat_channels = 64 * 2
-        self.spade_skip = Spade_Norm_Block(feat_channels, in_channels)
-        self.spade0 = Spade_Norm_Block(feat_channels, in_channels)
-        self.spade1 = Spade_Norm_Block(feat_channels, out_channels)
-
-    def forward(self, x, denorm_feat):
-        x = self.conv(x, no_act=True)
-
-        y = self.skip(self.spade_skip(x, denorm_feat), gain=np.sqrt(0.5))
-        x = self.conv0(self.spade0(x, denorm_feat))
-        x = self.conv1(self.spade1(x, denorm_feat), gain=np.sqrt(0.5))
-
-        x = y + x
-        return x
 
 class SynthesisLayer(nn.Module):
     def __init__(self,
@@ -801,7 +609,7 @@ class SynthesisLayer(nn.Module):
         self.resolution = resolution
         self.up = up
         self.use_noise = use_noise
-        self.use_noise = False
+        # self.use_noise = False
         self.activation = activation
         self.conv_clamp = conv_clamp
         self.register_buffer('resample_filter', upfirdn2d_setup_filter(resample_filter))
@@ -813,96 +621,31 @@ class SynthesisLayer(nn.Module):
         self.act_gain = def_gain
 
         self.affine = FullyConnectedLayer(w_dim, in_channels, bias_init=1)
-        # 假设屎山的channels_last都是False
-        assert channels_last == False
-        # memory_format = torch.channels_last if channels_last else torch.contiguous_format
-        # self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
-        self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                            default_initializer=paddle.nn.initializer.Normal())
-
+        memory_format = torch.channels_last if channels_last else torch.contiguous_format
+        self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
         if use_noise:
-            self.register_buffer('noise_const', paddle.randn([resolution, resolution]))
-            # self.noise_strength = torch.nn.Parameter(torch.zeros([]))
-            # 噪声强度（振幅）
-            self.noise_strength = self.create_parameter([1, ],
-                                                        default_initializer=paddle.nn.initializer.Constant(0.0))
-        # self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
-        self.bias = self.create_parameter([out_channels, ],
-                                          default_initializer=paddle.nn.initializer.Constant(0.0))
+            self.register_buffer('noise_const', torch.randn([resolution, resolution]))
+            self.noise_strength = torch.nn.Parameter(torch.zeros([]))
+        self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
 
-    def forward(self, x, w, dic2, pre_name, noise_mode='random', fused_modconv=True, gain=1):
+    def forward(self, x, w, noise_mode='random', fused_modconv=True, gain=1):
         assert noise_mode in ['random', 'const', 'none']
-        in_resolution = self.resolution // self.up
         styles = self.affine(w)
-
-        dstyles_dw = paddle.grad(
-            outputs=[styles.sum()],
-            inputs=[w],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dstyles_dw']
-        aaaaaaaaaaa2 = dstyles_dw.numpy()
-        ddd = np.sum((aaaaaaaaaaa1 - aaaaaaaaaaa2) ** 2)
-        print('ddd=%.6f' % ddd)
 
         noise = None
         if self.use_noise and noise_mode == 'random':
-            noise = paddle.randn([x.shape[0], 1, self.resolution, self.resolution]) * self.noise_strength
+            noise = torch.randn([x.shape[0], 1, self.resolution, self.resolution], device=x.device) * self.noise_strength
         if self.use_noise and noise_mode == 'const':
             noise = self.noise_const * self.noise_strength
 
         flip_weight = (self.up == 1) # slightly faster
-        img2 = modulated_conv2d(x=x, weight=self.weight, styles=styles, noise=noise, up=self.up,
+        x = modulated_conv2d(x=x, weight=self.weight, styles=styles, noise=noise, up=self.up,
             padding=self.padding, resample_filter=self.resample_filter, flip_weight=flip_weight, fused_modconv=fused_modconv)
-
-
-        dimg2_dx = paddle.grad(
-            outputs=[img2.sum()],
-            inputs=[x],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dimg2_dx']
-        aaaaaaaaaaa2 = dimg2_dx.numpy()
-        ddd = np.sum((aaaaaaaaaaa1 - aaaaaaaaaaa2) ** 2)
-        print('ddd=%.6f' % ddd)
-
-        dimg2_dw = paddle.grad(
-            outputs=[img2.sum()],
-            inputs=[w],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dimg2_dw']
-        aaaaaaaaaaa2 = dimg2_dw.numpy()
-        ddd = np.sum((aaaaaaaaaaa1 - aaaaaaaaaaa2) ** 2)
-        print('ddd=%.6f' % ddd)
-
-        dimg2_dstyles = paddle.grad(
-            outputs=[img2.sum()],
-            inputs=[styles],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa3 = dic2[pre_name + 'dimg2_dstyles']
-        aaaaaaaaaaa4 = dimg2_dstyles.numpy()
-        ddd = np.sum((aaaaaaaaaaa3 - aaaaaaaaaaa4) ** 2)
-        print('ddd=%.6f' % ddd)
 
         act_gain = self.act_gain * gain
         act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
-        img3 = bias_act(img2, paddle.cast(self.bias, dtype=x.dtype), act=self.activation, gain=act_gain, clamp=act_clamp)
-
-
-        dimg3_dimg2 = paddle.grad(
-            outputs=[img3.sum()],
-            inputs=[img2],
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dimg3_dimg2']
-        aaaaaaaaaaa2 = dimg3_dimg2.numpy()
-        ddd = np.sum((aaaaaaaaaaa1 - aaaaaaaaaaa2) ** 2)
-        print('ddd=%.6f' % ddd)
-
-        return img3
-
+        x = bias_act(x, self.bias.to(x.dtype), act=self.activation, gain=act_gain, clamp=act_clamp)
+        return x
 
 
 class ToRGBLayer(nn.Module):
@@ -912,19 +655,16 @@ class ToRGBLayer(nn.Module):
         self.affine = FullyConnectedLayer(w_dim, in_channels, bias_init=1)
         # 假设屎山的channels_last都是False
         assert channels_last == False
-        # memory_format = torch.channels_last if channels_last else torch.contiguous_format
-        # self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
-        self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                            default_initializer=paddle.nn.initializer.Normal())
-        self.bias = self.create_parameter([out_channels, ],
-                                          default_initializer=paddle.nn.initializer.Constant(0.0))
+        memory_format = torch.channels_last if channels_last else torch.contiguous_format
+        self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
+        self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
         self.weight_gain = 1 / np.sqrt(in_channels * (kernel_size ** 2))
 
 
-    def forward(self, x, w, dic2, pre_name, fused_modconv=True):
+    def forward(self, x, w, fused_modconv=True):
         styles = self.affine(w) * self.weight_gain
         x = modulated_conv2d(x=x, weight=self.weight, styles=styles, demodulate=False, fused_modconv=fused_modconv)
-        x = bias_act(x, paddle.cast(self.bias, dtype=x.dtype), clamp=self.conv_clamp)
+        x = bias_act(x, self.bias.to(x.dtype), clamp=self.conv_clamp)
         return x
 
 
@@ -958,8 +698,7 @@ class SynthesisBlock(nn.Module):
         self.num_torgb = 0
 
         if in_channels == 0:
-            self.const = self.create_parameter([out_channels, resolution, resolution],
-                                               default_initializer=paddle.nn.initializer.Normal())
+            self.const = torch.nn.Parameter(torch.randn([out_channels, resolution, resolution]))
 
         if in_channels != 0:
             self.conv0 = SynthesisLayer(in_channels, out_channels, w_dim=w_dim, resolution=resolution, up=2,
@@ -979,52 +718,42 @@ class SynthesisBlock(nn.Module):
             self.skip = Conv2dLayer(in_channels, out_channels, kernel_size=1, bias=False, up=2,
                 resample_filter=resample_filter, channels_last=self.channels_last)
 
-    def forward(self, x, img, ws, ws_idx, dic2, pre_name, force_fp32=False, fused_modconv=None, **layer_kwargs):
-    # def forward(self, x, img, ws, force_fp32=False, fused_modconv=None, **layer_kwargs):
-    #     w_iter = iter(ws.unbind(axis=1))
-        dtype = paddle.float16 if self.use_fp16 and not force_fp32 else paddle.float32
-        # 假设屎山的channels_last都是False
-        assert self.channels_last == False
-        # memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
+    def forward(self, x, img, ws, force_fp32=False, fused_modconv=None, **layer_kwargs):
+        w_iter = iter(ws.unbind(dim=1))
+        dtype = torch.float16 if self.use_fp16 and not force_fp32 else torch.float32
+        memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
         if fused_modconv is None:
-            fused_modconv = (not self.training) and (dtype == paddle.float32 or int(x.shape[0]) == 1)
+            fused_modconv = (not self.training) and (dtype == torch.float32 or int(x.shape[0]) == 1)
 
         # Input.
         if self.in_channels == 0:
-            x = paddle.cast(self.const, dtype=dtype)
-            # x = x.unsqueeze(0).tile([ws.shape[0], 1, 1, 1])
-            x = x.unsqueeze(0).tile([ws[0].shape[0], 1, 1, 1])
+            x = self.const.to(dtype=dtype, memory_format=memory_format)
+            x = x.unsqueeze(0).repeat([ws.shape[0], 1, 1, 1])
         else:
-            x = paddle.cast(x, dtype=dtype)
+            x = x.to(dtype=dtype, memory_format=memory_format)
 
         # Main layers.
         if self.in_channels == 0:
-            # x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
-            x = self.conv1(x, ws[ws_idx], dic2, pre_name + '_conv1', fused_modconv=fused_modconv, **layer_kwargs); ws_idx+=1
+            x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
         elif self.architecture == 'resnet':
             y = self.skip(x, gain=np.sqrt(0.5))
-            # x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
-            # x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, gain=np.sqrt(0.5), **layer_kwargs)
-            x = self.conv0(x, ws[ws_idx], dic2, pre_name + '_conv0', fused_modconv=fused_modconv, **layer_kwargs); ws_idx+=1
-            x = self.conv1(x, ws[ws_idx], dic2, pre_name + '_conv1', fused_modconv=fused_modconv, gain=np.sqrt(0.5), **layer_kwargs); ws_idx+=1
-            x = y.add_(x)
+            x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, gain=np.sqrt(0.5), **layer_kwargs)
+            x = y + x
         else:
-            # x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
-            # x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
-            x = self.conv0(x, ws[ws_idx], dic2, pre_name + '_conv0', fused_modconv=fused_modconv, **layer_kwargs); ws_idx+=1
-            x = self.conv1(x, ws[ws_idx], dic2, pre_name + '_conv1', fused_modconv=fused_modconv, **layer_kwargs); ws_idx+=1
+            x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
 
         # ToRGB.
         if img is not None:
             img = upsample2d(img, self.resample_filter)
         if self.is_last or self.architecture == 'skip':
-            # y = self.torgb(x, next(w_iter), fused_modconv=fused_modconv)
-            y = self.torgb(x, ws[ws_idx], dic2, pre_name + '_torgb', fused_modconv=fused_modconv); ws_idx+=1
-            y = paddle.cast(y, dtype=paddle.float32)
+            y = self.torgb(x, next(w_iter), fused_modconv=fused_modconv)
+            y = y.to(dtype=torch.float32, memory_format=torch.contiguous_format)
             img = img + y if img is not None else y
 
         assert x.dtype == dtype
-        assert img is None or img.dtype == paddle.float32
+        assert img is None or img.dtype == torch.float32
         return x, img
 
 
@@ -1054,7 +783,7 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
             in_channels = channels_dict[res // 2] if res > 4 else 0
             out_channels = channels_dict[res]
             use_fp16 = (res >= fp16_resolution)
-            use_fp16 = False
+            # use_fp16 = False
             is_last = (res == self.img_resolution)
             block = SynthesisBlock(in_channels, out_channels, w_dim=w_dim, resolution=res,
                 img_channels=img_channels, is_last=is_last, use_fp16=use_fp16, **block_kwargs)
