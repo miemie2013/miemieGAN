@@ -59,62 +59,44 @@ class StyleGANv2ADADataPrefetcher:
     https://github.com/NVIDIA/apex/issues/304#issuecomment-493562789.
     """
 
-    def __init__(self, loader, n_layers):
+    def __init__(self, loader):
         self.loader = iter(loader)
         self.stream = torch.cuda.Stream()
-        self.n_layers = n_layers
         self.input_cuda = self._input_cuda_for_image
-        self.record_stream = PPYOLODataPrefetcher._record_stream_for_image
+        self.record_stream = StyleGANv2ADADataPrefetcher._record_stream_for_image
         self.preload()
 
     def preload(self):
         try:
-            if self.n_layers == 3:
-                self.next_input, self.gt_bbox, self.target0, self.target1, self.target2 = next(self.loader)
-            elif self.n_layers == 2:
-                self.next_input, self.gt_bbox, self.target0, self.target1 = next(self.loader)
+            self.phase_real_img, self.phase_real_c, self.phases_all_gen_c = next(self.loader)
         except StopIteration:
-            self.next_input = None
-            self.gt_bbox = None
-            self.target0 = None
-            self.target1 = None
-            self.target2 = None
+            self.phase_real_img = None
+            self.phase_real_c = None
+            self.phases_all_gen_c = None
             return
 
         with torch.cuda.stream(self.stream):
             self.input_cuda()
-            self.gt_bbox = self.gt_bbox.cuda(non_blocking=True)
-            self.target0 = self.target0.cuda(non_blocking=True)
-            self.target1 = self.target1.cuda(non_blocking=True)
-            if self.n_layers == 3:
-                self.target2 = self.target2.cuda(non_blocking=True)
+            self.phase_real_c = self.phase_real_c.cuda(non_blocking=True)
+            self.phases_all_gen_c = [x.cuda(non_blocking=True) for x in self.phases_all_gen_c]
 
     def next(self):
         torch.cuda.current_stream().wait_stream(self.stream)
-        input = self.next_input
-        gt_bbox = self.gt_bbox
-        target0 = self.target0
-        target1 = self.target1
-        if self.n_layers == 3:
-            target2 = self.target2
-        if input is not None:
-            self.record_stream(input)
-        if gt_bbox is not None:
-            gt_bbox.record_stream(torch.cuda.current_stream())
-        if target0 is not None:
-            target0.record_stream(torch.cuda.current_stream())
-        if target1 is not None:
-            target1.record_stream(torch.cuda.current_stream())
-        if self.n_layers == 3:
-            if target2 is not None:
-                target2.record_stream(torch.cuda.current_stream())
+        phase_real_img = self.phase_real_img
+        phase_real_c = self.phase_real_c
+        phases_all_gen_c = self.phases_all_gen_c
+        if phase_real_img is not None:
+            self.record_stream(phase_real_img)
+        if phase_real_c is not None:
+            phase_real_c.record_stream(torch.cuda.current_stream())
+        if phases_all_gen_c is not None:
+            for x in phases_all_gen_c:
+                x.record_stream(torch.cuda.current_stream())
         self.preload()
-        if self.n_layers == 3:
-            return input, gt_bbox, target0, target1, target2
-        return input, gt_bbox, target0, target1
+        return phase_real_img, phase_real_c, phases_all_gen_c
 
     def _input_cuda_for_image(self):
-        self.next_input = self.next_input.cuda(non_blocking=True)
+        self.phase_real_img = self.phase_real_img.cuda(non_blocking=True)
 
     @staticmethod
     def _record_stream_for_image(input):

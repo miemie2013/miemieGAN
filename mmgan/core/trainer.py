@@ -92,89 +92,21 @@ class Trainer:
 
     def train_one_iter(self):
         iter_start_time = time.time()
-
-        if self.archi_name == 'YOLOX':
-            inps, targets = self.prefetcher.next()
-            inps = inps.to(self.data_type)
-            targets = targets.to(self.data_type)
-            targets.requires_grad = False
-            inps, targets = self.exp.preprocess(inps, targets, self.input_size)
+        if self.archi_name == 'StyleGANv2ADA':
+            phase_real_img, phase_real_c, phases_all_gen_c = self.prefetcher.next()
+            phase_real_img = phase_real_img.to(self.data_type)
+            phase_real_c = phase_real_c.to(self.data_type)
+            phases_all_gen_c = [x.to(self.data_type) for x in phases_all_gen_c]
+            phase_real_img.requires_grad = False
+            phase_real_c.requires_grad = False
+            for x in phases_all_gen_c:
+                x.requires_grad = False
             data_end_time = time.time()
 
+            data = [phase_real_img, phase_real_c, phases_all_gen_c]
+            self.model.setup_input(data)
             with torch.cuda.amp.autocast(enabled=self.amp_training):
-                outputs = self.model(inps, targets)
-        elif self.archi_name == 'PPYOLO':
-            if self.n_layers == 3:
-                inps, gt_bbox, target0, target1, target2 = self.prefetcher.next()
-            elif self.n_layers == 2:
-                inps, gt_bbox, target0, target1 = self.prefetcher.next()
-            inps = inps.to(self.data_type)
-            gt_bbox = gt_bbox.to(self.data_type)
-            target0 = target0.to(self.data_type)
-            target1 = target1.to(self.data_type)
-            if self.n_layers == 3:
-                target2 = target2.to(self.data_type)
-                target2.requires_grad = False
-            gt_bbox.requires_grad = False
-            target0.requires_grad = False
-            target1.requires_grad = False
-            data_end_time = time.time()
-
-            with torch.cuda.amp.autocast(enabled=self.amp_training):
-                if self.n_layers == 3:
-                    targets = [target0, target1, target2]
-                elif self.n_layers == 2:
-                    targets = [target0, target1]
-                outputs = self.model.train_model(inps, gt_bbox, targets)
-        elif self.archi_name == 'FCOS':
-            if self.n_layers == 5:
-                inps, labels0, reg_target0, centerness0, labels1, reg_target1, centerness1, labels2, reg_target2, centerness2, labels3, reg_target3, centerness3, labels4, reg_target4, centerness4 = self.prefetcher.next()
-            elif self.n_layers == 3:
-                inps, labels0, reg_target0, centerness0, labels1, reg_target1, centerness1, labels2, reg_target2, centerness2 = self.prefetcher.next()
-            inps = inps.to(self.data_type)
-            labels0 = labels0.to(self.data_type)
-            reg_target0 = reg_target0.to(self.data_type)
-            centerness0 = centerness0.to(self.data_type)
-            labels1 = labels1.to(self.data_type)
-            reg_target1 = reg_target1.to(self.data_type)
-            centerness1 = centerness1.to(self.data_type)
-            labels2 = labels2.to(self.data_type)
-            reg_target2 = reg_target2.to(self.data_type)
-            centerness2 = centerness2.to(self.data_type)
-            if self.n_layers == 5:
-                labels3 = labels3.to(self.data_type)
-                reg_target3 = reg_target3.to(self.data_type)
-                centerness3 = centerness3.to(self.data_type)
-                labels4 = labels4.to(self.data_type)
-                reg_target4 = reg_target4.to(self.data_type)
-                centerness4 = centerness4.to(self.data_type)
-                labels3.requires_grad = False
-                reg_target3.requires_grad = False
-                centerness3.requires_grad = False
-                labels4.requires_grad = False
-                reg_target4.requires_grad = False
-                centerness4.requires_grad = False
-            labels0.requires_grad = False
-            reg_target0.requires_grad = False
-            centerness0.requires_grad = False
-            labels1.requires_grad = False
-            reg_target1.requires_grad = False
-            centerness1.requires_grad = False
-            labels2.requires_grad = False
-            reg_target2.requires_grad = False
-            centerness2.requires_grad = False
-            data_end_time = time.time()
-
-            with torch.cuda.amp.autocast(enabled=self.amp_training):
-                if self.n_layers == 5:
-                    tag_labels = [labels0, labels1, labels2, labels3, labels4]
-                    tag_bboxes = [reg_target0, reg_target1, reg_target2, reg_target3, reg_target4]
-                    tag_center = [centerness0, centerness1, centerness2, centerness3, centerness4]
-                elif self.n_layers == 3:
-                    tag_labels = [labels0, labels1, labels2]
-                    tag_bboxes = [reg_target0, reg_target1, reg_target2]
-                    tag_center = [centerness0, centerness1, centerness2]
-                outputs = self.model.train_model(inps, tag_labels, tag_bboxes, tag_center)
+                outputs = self.model.train_iter(optimizers=[])
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -331,26 +263,12 @@ class Trainer:
 
     def after_train(self):
         logger.info(
-            "Training of experiment is done and the best AP is {:.2f}".format(self.best_ap * 100)
+            "Training of experiment is done."
         )
 
     def before_epoch(self):
         logger.info("---> start train epoch{}".format(self.epoch + 1))
-        if self.archi_name == 'YOLOX':
-            if self.epoch == self.max_epoch - self.exp.no_aug_epochs or self.no_aug:
-                logger.info("--->No mosaic aug now!")
-                self.train_loader.close_mosaic()
-                logger.info("--->Add additional L1 loss now!")
-                if self.is_distributed:
-                    self.model.module.head.use_l1 = True
-                else:
-                    self.model.head.use_l1 = True
-                self.exp.eval_interval = 1
-                if not self.no_aug:
-                    self.save_ckpt(ckpt_name="last_mosaic_epoch")
-        elif self.archi_name == 'PPYOLO':
-            self.train_loader.dataset.set_epoch(self.epoch)
-        elif self.archi_name == 'FCOS':
+        if self.archi_name == 'StyleGANv2ADA':
             self.train_loader.dataset.set_epoch(self.epoch)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))

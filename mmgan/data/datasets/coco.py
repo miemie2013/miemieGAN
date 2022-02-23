@@ -542,11 +542,11 @@ class StyleGANv2ADADataset(torch.utils.data.Dataset):
         assert isinstance(image, np.ndarray)
         assert list(image.shape) == self.image_shape
         assert image.dtype == np.uint8
-        if self._xflip[idx]:
+        if self._xflip[img_idx]:
             assert image.ndim == 3 # CHW
             image = image[:, :, ::-1]
         image_gen_c = [self.get_label(np.random.randint(len(self))) for _ in range(self.len_phases)]
-        return image.copy(), self.get_label(idx), image_gen_c
+        return image.copy(), self.get_label(img_idx), image_gen_c
 
     def get_label(self, idx):
         label = self._get_raw_labels()[self._raw_idx[idx]]
