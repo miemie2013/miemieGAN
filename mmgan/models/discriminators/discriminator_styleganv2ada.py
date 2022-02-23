@@ -1,12 +1,12 @@
-import paddle.nn as nn
-import paddle
+import torch.nn as nn
+import torch
 
 from ..generators.generator_styleganv2ada import StyleGANv2ADA_MappingNetwork, upfirdn2d_setup_filter, Conv2dLayer, FullyConnectedLayer, downsample2d
 
 import numpy as np
 
 
-class DiscriminatorBlock(nn.Layer):
+class DiscriminatorBlock(nn.Module):
     def __init__(self,
         in_channels,                        # Number of input channels, 0 = first block.
         tmp_channels,                       # Number of intermediate channels.
@@ -58,20 +58,16 @@ class DiscriminatorBlock(nn.Layer):
                 trainable=next(trainable_iter), resample_filter=resample_filter, channels_last=self.channels_last)
 
     def forward(self, x, img, force_fp32=False):
-        dtype = paddle.float16 if self.use_fp16 and not force_fp32 else paddle.float32
-        # 假设屎山的channels_last都是False
-        assert self.channels_last == False
-        # memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
+        dtype = torch.float16 if self.use_fp16 and not force_fp32 else torch.float32
+        memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
 
         # Input.
         if x is not None:
-            # x = x.to(dtype=dtype, memory_format=memory_format)
-            x = paddle.cast(x, dtype=dtype)
+            x = x.to(dtype=dtype, memory_format=memory_format)
 
         # FromRGB.
         if self.in_channels == 0 or self.architecture == 'skip':
-            # img = img.to(dtype=dtype, memory_format=memory_format)
-            img = paddle.cast(img, dtype=dtype)
+            img = img.to(dtype=dtype, memory_format=memory_format)
             y = self.fromrgb(img)
             x = x + y if x is not None else y
             img = downsample2d(img, self.resample_filter) if self.architecture == 'skip' else None
@@ -89,7 +85,7 @@ class DiscriminatorBlock(nn.Layer):
         assert x.dtype == dtype
         return x, img
 
-class MinibatchStdLayer(nn.Layer):
+class MinibatchStdLayer(nn.Module):
     def __init__(self, group_size, num_channels=1):
         super().__init__()
         self.group_size = group_size
@@ -97,7 +93,6 @@ class MinibatchStdLayer(nn.Layer):
 
     def forward(self, x):
         N, C, H, W = x.shape
-        # G = torch.min(torch.as_tensor(self.group_size), torch.as_tensor(N)) if self.group_size is not None else N
         G = min(self.group_size, N) if self.group_size is not None else N
         F = self.num_channels
         c = C // F
@@ -109,10 +104,10 @@ class MinibatchStdLayer(nn.Layer):
         y = y.mean([2, 3, 4])               # [nF]     Take average over channels and pixels.
         y = y.reshape((-1, F, 1, 1))          # [nF11]   Add missing dimensions.
         y = y.tile([G, 1, H, W])            # [NFHW]   Replicate over group and pixels.
-        x = paddle.concat([x, y], 1)        # [NCHW]   Append to input as new channels.
+        x = torch.cat([x, y], 1)            # [NCHW]   Append to input as new channels.
         return x
 
-class DiscriminatorEpilogue(nn.Layer):
+class DiscriminatorEpilogue(nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
         cmap_dim,                       # Dimensionality of mapped conditioning label, 0 = no label.
@@ -170,7 +165,7 @@ class DiscriminatorEpilogue(nn.Layer):
         return x
 
 
-class StyleGANv2ADA_Discriminator(nn.Layer):
+class StyleGANv2ADA_Discriminator(nn.Module):
     def __init__(self,
         c_dim,                          # Conditioning label (C) dimensionality.
         img_resolution,                 # Input resolution.
