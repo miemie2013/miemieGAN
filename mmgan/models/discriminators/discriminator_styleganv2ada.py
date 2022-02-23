@@ -136,30 +136,25 @@ class DiscriminatorEpilogue(nn.Module):
 
     def forward(self, x, img, cmap, force_fp32=False):
         _ = force_fp32 # unused
-        dtype = paddle.float32
-        # memory_format = torch.contiguous_format
+        dtype = torch.float32
+        memory_format = torch.contiguous_format
 
         # FromRGB.
-        # x = x.to(dtype=dtype, memory_format=memory_format)
-        x = paddle.cast(x, dtype=dtype)
+        x = x.to(dtype=dtype, memory_format=memory_format)
         if self.architecture == 'skip':
-            # img = img.to(dtype=dtype, memory_format=memory_format)
-            img = paddle.cast(img, dtype=dtype)
+            img = img.to(dtype=dtype, memory_format=memory_format)
             x = x + self.fromrgb(img)
 
         # Main layers.
         if self.mbstd is not None:
             x = self.mbstd(x)
         x = self.conv(x)
-        # flatten_x = x.flatten(1)   # 因为flatten()没有实现二阶梯度，所以用其它等价实现。
-        batch_size = x.shape[0]
-        flatten_x = x.reshape((batch_size, -1))
-        x = self.fc(flatten_x)
+        x = self.fc(x.flatten(1))
         x = self.out(x)
 
         # Conditioning.
         if self.cmap_dim > 0:
-            x = (x * cmap).sum(axis=1, keepdim=True) * (1 / np.sqrt(self.cmap_dim))
+            x = (x * cmap).sum(dim=1, keepdim=True) * (1 / np.sqrt(self.cmap_dim))
 
         assert x.dtype == dtype
         return x
@@ -200,8 +195,8 @@ class StyleGANv2ADA_Discriminator(nn.Module):
             in_channels = channels_dict[res] if res < img_resolution else 0
             tmp_channels = channels_dict[res]
             out_channels = channels_dict[res // 2]
-            # use_fp16 = (res >= fp16_resolution)
-            use_fp16 = False
+            use_fp16 = (res >= fp16_resolution)
+            # use_fp16 = False
             block = DiscriminatorBlock(in_channels, tmp_channels, out_channels, resolution=res,
                 first_layer_idx=cur_layer_idx, use_fp16=use_fp16, **block_kwargs, **common_kwargs)
             setattr(self, f'b{res}', block)
