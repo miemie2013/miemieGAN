@@ -67,6 +67,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.metrics = OrderedDict()
         self.losses = OrderedDict()
         self.visual_items = OrderedDict()
+
         self.synthesis = synthesis
         self.synthesis_ema = synthesis_ema
         self.mapping = mapping
