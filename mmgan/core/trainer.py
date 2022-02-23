@@ -93,6 +93,7 @@ class Trainer:
     def train_one_iter(self):
         iter_start_time = time.time()
         if self.archi_name == 'StyleGANv2ADA':
+            # StyleGANv2ADA不使用混合精度训练，所以训练代码只写了FP32的情况。
             phase_real_img, phase_real_c, phases_all_gen_c = self.prefetcher.next()
             phase_real_img = phase_real_img.to(self.data_type)
             phase_real_c = phase_real_c.to(self.data_type)
@@ -105,38 +106,21 @@ class Trainer:
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             self.model.setup_input(data)
-            with torch.cuda.amp.autocast(enabled=self.amp_training):
-                outputs = self.model.train_iter(optimizers=[])
+            outputs = self.model.train_iter(self.optimizers)
+
+            loss = outputs["total_loss"]
+
+            if self.use_model_ema:
+                self.ema_model.update(self.model)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
 
-        loss = outputs["total_loss"]
-
-        self.optimizer.zero_grad()
-        self.scaler.scale(loss).backward()
-        # 梯度裁剪
-        if self.need_clip:
-            for param_group in self.optimizer.param_groups:
-                if param_group['need_clip']:
-                    torch.nn.utils.clip_grad_norm_(param_group['params'], max_norm=param_group['clip_norm'], norm_type=2)
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-
-        if self.use_model_ema:
-            self.ema_model.update(self.model)
-
         # 修改学习率
         lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
-        if self.archi_name == 'YOLOX':
+        if self.archi_name == 'StyleGANv2ADA':
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = lr
-        elif self.archi_name == 'PPYOLO':
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr * param_group['base_lr'] / self.base_lr   # = lr * 参数自己的学习率
-        elif self.archi_name == 'FCOS':
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr * param_group['base_lr'] / self.base_lr   # = lr * 参数自己的学习率
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -201,8 +185,11 @@ class Trainer:
             # model.add_param_group(param_groups, self.base_lr, base_wd, self.need_clip, self.clip_norm)
 
             # solver related init
+            self.optimizers = {}
             self.optimizer_G = self.exp.get_optimizer(self.base_lr_G, 'G')
             self.optimizer_D = self.exp.get_optimizer(self.base_lr_D, 'D')
+            self.optimizers['optimizer_G'] = self.optimizer_G
+            self.optimizers['optimizer_D'] = self.optimizer_D
 
             # value of epoch will be set in `resume_train`
             model = self.resume_train(model)

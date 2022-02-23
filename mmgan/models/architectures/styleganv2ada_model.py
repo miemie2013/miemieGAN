@@ -78,11 +78,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim
 
-        # self.nets['generator'].apply(he_init)
-        # self.nets['style_encoder'].apply(he_init)
-        # self.nets['mapping_network'].apply(he_init)
-        # self.nets['discriminator'].apply(he_init)
-
         self.phases = []
         for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
             if reg_interval is None:
@@ -126,24 +121,11 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
     def _reset_grad(self, optims):
         for optim in optims.values():
-            optim.clear_gradients()
+            optim.zero_grad()
 
-    def run_G(self, z, c, sync, dic2, pre_name):
+    def run_G(self, z, c, sync):
         print('------------------ run_G -------------------')
-        z.stop_gradient = False
-        ws = self.nets['mapping'](z, c, dic2, pre_name + '_mapping')
-
-        dws_dz = paddle.grad(
-            outputs=[ws.sum()],
-            # outputs=[gen_img.sum()],
-            inputs=[z],
-            # inputs=gen_block_ws,
-            create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dws_dz']
-        aaaaaaaaaaa2 = dws_dz.numpy()
-        ddd = np.sum((dic2[pre_name + 'dws_dz'] - dws_dz.numpy()) ** 2)
-        print('ddd=%.6f' % ddd)
+        ws = self.mapping(z, c)
         self.style_mixing_prob = -1.0
         if self.style_mixing_prob > 0:
             # cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
@@ -158,38 +140,22 @@ class StyleGANv2ADAModel(torch.nn.Module):
             if cutoff == ws.shape[1]:
                 pass
             else:
-                temp = self.nets['mapping'](paddle.randn(z.shape), c, skip_w_avg_update=True)[:, cutoff:]
+                temp = self.mapping(paddle.randn(z.shape), c, skip_w_avg_update=True)[:, cutoff:]
                 temp2 = ws[:, :cutoff]
                 ws = paddle.concat([temp2, temp], 1)
 
-
-        # ws_float32 = paddle.cast(ws, dtype='float32')
-        # img, block_ws = self.nets['synthesis'](ws_float32)
-        img, block_ws = self.nets['synthesis'](ws, dic2, pre_name + '_synthesis')
-        # return img, block_ws, ws_float32
-
-
-
-        dimg_dws = paddle.grad(
-            outputs=[img.sum()],
-            inputs=[ws],
-            create_graph=True,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-            retain_graph=True)[0]
-        aaaaaaaaaaa1 = dic2[pre_name + 'dimg_dws']
-        aaaaaaaaaaa2 = dimg_dws.numpy()
-        ddd = np.sum((dic2[pre_name + 'dimg_dws'] - dimg_dws.numpy()) ** 2)
-        print('ddd=%.6f' % ddd)
-        return img, block_ws, ws
+        img = self.synthesis(ws)
+        return img, ws
 
     def run_D(self, img, c, sync):
         if self.augment_pipe is not None:
             img = self.augment_pipe(img)
 
-        logits = self.nets['discriminator'](img, c)
+        logits = self.discriminator(img, c)
         return logits
 
     # 梯度累加（变相增大批大小）。
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain, dic2):
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         do_Gmain = (phase in ['Gmain', 'Gboth'])
         do_Dmain = (phase in ['Dmain', 'Dboth'])
@@ -203,15 +169,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
         # Gmain: Maximize logits for generated images.
         if do_Gmain:
             print('----------------- do_Gmain -----------------')
-            gen_img, _, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl), dic2=dic2, pre_name=phase) # May get synced by Gpl.
-            ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
-            ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
+            gen_img, _, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
 
             gen_logits = self.run_D(gen_img, gen_c, sync=False)
-            ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
 
             loss_Gmain = paddle.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
             loss_Gmain = loss_Gmain.mean()
@@ -235,13 +195,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
             if gen_c is not None:
                 gen_c_ = gen_c[:batch_size]
 
-            gen_img, gen_block_ws, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync, dic2=dic2, pre_name=phase)
-            ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
-            aaaaaaaaaaa1 = dic2[phase + 'gen_ws']
-            aaaaaaaaaaa2 = gen_ws.numpy()
-            ddd = np.sum((dic2[phase + 'gen_ws'] - gen_ws.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
+            gen_img, gen_block_ws, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
             # pl_noise = paddle.randn(gen_img.shape) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
             pl_noise = paddle.ones(gen_img.shape) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
             pl_gradss = paddle.grad(
@@ -253,17 +207,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 retain_graph=True)
             pl_grads = pl_gradss[0]
             pl_gradss = [aaa.numpy() for aaa in pl_gradss]
-            aaaaaaaaaaa3 = dic2[phase + 'pl_grads']
-            aaaaaaaaaaa1 = dic2[phase + 'pl_grads'][0][15]
-            # bbbbbbbbbbbbbbbbbbb0 = aaaaaaaaaaa3[0][0] / pl_gradss[0][0]
-            # bbbbbbbbbbbbbbbbbbb2 = aaaaaaaaaaa3[0][2] / pl_gradss[2][0]
-            aaaaaaaaaaa2 = pl_grads.numpy()[0][15]
-            aaaaaaaaaaa4 = pl_grads.numpy()
-            ddd = np.sum((aaaaaaaaaaa1 - aaaaaaaaaaa2) ** 2)
-            print('ddd=%.6f' % ddd)
-            pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
-            ddd = np.sum((dic2[phase + 'pl_lengths'] - pl_lengths.numpy()) ** 2)
-            print('ddd=%.6f' % ddd)
 
             # pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
             # self.pl_mean.copy_(pl_mean.detach())
@@ -331,9 +274,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
-        print('======================== batch%.5d.npz ========================'%self.batch_idx)
-        dic2 = np.load('batch%.5d.npz'%self.batch_idx)
-        phase_real_img = paddle.to_tensor(dic2['phase_real_img'], dtype=phase_real_img.dtype)
+        # print('======================== batch%.5d.npz ========================'%self.batch_idx)
+        # dic2 = np.load('batch%.5d.npz'%self.batch_idx)
+        # phase_real_img = paddle.to_tensor(dic2['phase_real_img'], dtype=phase_real_img.dtype)
 
         # miemie2013: 调试的代码
         # dic2 = np.load('../train_data.npz')
@@ -360,7 +303,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         # phase_retain_mask2 = paddle.to_tensor(dic2['phase_retain_mask'], dtype=phase_retain_mask.dtype)
 
 
-        phase_real_img = paddle.cast(phase_real_img, dtype=paddle.float32) / 127.5 - 1
+        phase_real_img = phase_real_img / 127.5 - 1
 
 
         phases = self.phases
@@ -370,25 +313,24 @@ class StyleGANv2ADAModel(torch.nn.Module):
         num_gpus = 1  # 显卡数量
         batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
         if self.z_dim > 0:
-            all_gen_z = paddle.randn([len(phases) * batch_size, self.z_dim])  # 咩酱：训练的4个阶段每个gpu的噪声
-            all_gen_z = paddle.to_tensor(dic2['all_gen_z'], dtype=all_gen_z.dtype)
+            all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim])  # 咩酱：训练的4个阶段每个gpu的噪声
         else:
-            all_gen_z = paddle.randn([len(phases) * batch_size, 1])  # 咩酱：训练的4个阶段每个gpu的噪声
-        phases_all_gen_z = paddle.split(all_gen_z, num_or_sections=len(phases))  # 咩酱：训练的4个阶段的噪声
-        all_gen_z = [paddle.split(phase_gen_z, num_or_sections=num_gpus) for phase_gen_z in phases_all_gen_z]  # 咩酱：训练的4个阶段每个gpu的噪声
+            all_gen_z = torch.randn([len(phases) * batch_size, 1])  # 咩酱：训练的4个阶段每个gpu的噪声
+        phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
+        all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in phases_all_gen_z]  # 咩酱：训练的4个阶段每个gpu的噪声
 
         c_dim = phases_all_gen_c[0].shape[1]
         all_gen_c = None
         if c_dim > 0:
-            all_gen_c = [paddle.split(phase_gen_c, num_or_sections=num_gpus) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
+            all_gen_c = [phase_gen_c.split(batch_gpu) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
         else:
             all_gen_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
 
-        phase_real_img = paddle.split(phase_real_img, num_or_sections=num_gpus)
+        phase_real_img = phase_real_img.split(batch_gpu)
 
         c_dim = phase_real_c.shape[1]
         if c_dim > 0:
-            phase_real_c = paddle.split(phase_real_c, num_or_sections=num_gpus)
+            phase_real_c = phase_real_c.split(batch_gpu)
         else:
             phase_real_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
 
@@ -401,21 +343,21 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
             # Initialize gradient accumulation.  咩酱：初始化梯度累加（变相增大批大小）。
             self._reset_grad(optimizers)  # 梯度清0
-            if 'G' in phase['name']:
-                # self.nets['synthesis'].trainable = False
-                for name, param in self.nets['synthesis'].named_parameters():
-                    param.stop_gradient = False
-                for name, param in self.nets['mapping'].named_parameters():
-                    param.stop_gradient = False
-                for name, param in self.nets['discriminator'].named_parameters():
-                    param.stop_gradient = True
-            elif 'D' in phase['name']:
-                for name, param in self.nets['synthesis'].named_parameters():
-                    param.stop_gradient = True
-                for name, param in self.nets['mapping'].named_parameters():
-                    param.stop_gradient = True
-                for name, param in self.nets['discriminator'].named_parameters():
-                    param.stop_gradient = False
+            # if 'G' in phase['name']:
+            #     # self.nets['synthesis'].trainable = False
+            #     for name, param in self.nets['synthesis'].named_parameters():
+            #         param.stop_gradient = False
+            #     for name, param in self.nets['mapping'].named_parameters():
+            #         param.stop_gradient = False
+            #     for name, param in self.nets['discriminator'].named_parameters():
+            #         param.stop_gradient = True
+            # elif 'D' in phase['name']:
+            #     for name, param in self.nets['synthesis'].named_parameters():
+            #         param.stop_gradient = True
+            #     for name, param in self.nets['mapping'].named_parameters():
+            #         param.stop_gradient = True
+            #     for name, param in self.nets['discriminator'].named_parameters():
+            #         param.stop_gradient = False
 
             # 梯度累加。一个总的批次的图片分开{显卡数量}次遍历。
             # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
@@ -424,6 +366,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 gain = phase['interval']     # 咩酱：即上文提到的训练间隔。
 
                 # 梯度累加（变相增大批大小）。
+                dic2 = None
                 loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
                                                        gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain, dic2=dic2)
                 loss_numpys.append(loss_numpy)
@@ -441,11 +384,11 @@ class StyleGANv2ADAModel(torch.nn.Module):
             #     optimizers['discriminator'].step()  # 更新参数
 
         # compute moving average of network parameters。指数滑动平均
-        soft_update(self.nets['synthesis'],
-                    self.nets_ema['synthesis'],
+        soft_update(self.synthesis,
+                    self.synthesis_ema,
                     beta=0.999)
-        soft_update(self.nets['mapping'],
-                    self.nets_ema['mapping'],
+        soft_update(self.mapping,
+                    self.mapping_ema,
                     beta=0.999)
 
         for loss, prefix in zip(
