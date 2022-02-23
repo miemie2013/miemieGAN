@@ -1,9 +1,9 @@
 # code was heavily based on https://github.com/clovaai/stargan-v2
 # Users should be careful about adopting these functions in any commercial matters.
 # https://github.com/clovaai/stargan-v2#license
-import paddle
-from paddle import nn
-import paddle.nn.functional as F
+import torch
+from torch import nn
+import torch.nn.functional as F
 
 import numpy as np
 import math
@@ -41,7 +41,7 @@ def upfirdn2d_setup_filter(shape, normalize=True, flip_filter=False, gain=1, sep
     # Validate.
     if shape is None:
         shape = 1
-    shape = paddle.to_tensor(shape, dtype='float32')
+    shape = torch.as_tensor(shape, dtype=torch.float32)
     assert shape.ndim in [0, 1, 2]
     assert shape.numel() > 0
     if shape.ndim == 0:
@@ -51,9 +51,7 @@ def upfirdn2d_setup_filter(shape, normalize=True, flip_filter=False, gain=1, sep
     if separable is None:
         separable = (shape.ndim == 1 and shape.numel() >= 8)
     if shape.ndim == 1 and not separable:
-        # ger()相当于向量自乘
-        shape = paddle.unsqueeze(shape, 1)  # [n, 1]
-        shape = paddle.matmul(shape, shape.transpose((1, 0)))  # [n, n]
+        shape = shape.ger(shape)
     assert shape.ndim == (1 if separable else 2)
 
     # Apply normalize, flip, gain, and device.
@@ -92,7 +90,7 @@ def bias_act(x, b=None, dim=1, act='linear', alpha=None, gain=None, clamp=None):
     # 加上偏移
     if b is not None:
         new_shape = [-1 if i == dim else 1 for i in range(x.ndim)]
-        b_ = paddle.reshape(b, new_shape)
+        b_ = torch.reshape(b, new_shape)
         x = x + b_
 
     # 经过激活函数
@@ -104,7 +102,7 @@ def bias_act(x, b=None, dim=1, act='linear', alpha=None, gain=None, clamp=None):
     elif act == 'lrelu':
         x = F.leaky_relu(x, alpha)
     elif act == 'tanh':
-        x = paddle.tanh(x)
+        x = torch.tanh(x)
     elif act == 'sigmoid':
         x = F.sigmoid(x)
     elif act == 'elu':
@@ -126,7 +124,7 @@ def bias_act(x, b=None, dim=1, act='linear', alpha=None, gain=None, clamp=None):
 
     # 限制范围
     if clamp >= 0:
-        x = paddle.clip(x, -clamp, clamp)
+        x = x.clamp(-clamp, clamp)
     return x
 
 def _parse_padding(padding):
@@ -153,21 +151,20 @@ def _conv2d_wrapper(x, w, stride=1, padding=0, groups=1, transpose=False, flip_w
     # Workaround performance pitfall in cuDNN 8.0.5, triggered when using
     # 1x1 kernel + memory_format=channels_last + less than 64 channels.
     if kw == 1 and kh == 1 and stride == 1 and padding in [0, [0, 0], (0, 0)] and not transpose:
-        if x.shape[2] * x.shape[3] == 1 and min(out_channels, in_channels_per_group) < 64:
+        if x.stride()[1] == 1 and min(out_channels, in_channels_per_group) < 64:
             if out_channels <= 4 and groups == 1:
                 in_shape = x.shape
                 x = w.squeeze(3).squeeze(2) @ x.reshape([in_shape[0], in_channels_per_group, -1])
                 x = x.reshape([in_shape[0], out_channels, in_shape[2], in_shape[3]])
             else:
-                # x = x.to(memory_format=torch.contiguous_format)
-                # w = w.to(memory_format=torch.contiguous_format)
+                x = x.to(memory_format=torch.contiguous_format)
+                w = w.to(memory_format=torch.contiguous_format)
                 x = F.conv2d(x, w, groups=groups)
-            # return x.to(memory_format=torch.channels_last)
-            return x
+            return x.to(memory_format=torch.channels_last)
 
     # Otherwise => execute using conv2d_gradfix.
     if transpose:
-        return F.conv2d_transpose(x, weight=w, bias=None, stride=stride, padding=padding, output_padding=0, groups=groups, dilation=1)
+        return F.conv_transpose2d(x, weight=w, bias=None, stride=stride, padding=padding, output_padding=0, groups=groups, dilation=1)
     else:
         return F.conv2d(x, weight=w, bias=None, stride=stride, padding=padding, dilation=1, groups=groups)
 
@@ -181,67 +178,46 @@ def _parse_scaling(scaling):
     assert sx >= 1 and sy >= 1
     return sx, sy
 
-def upfirdn2d(x, filter, up=1, down=1, padding=0, flip_filter=False, gain=1):
-    if filter is None:
-        filter = paddle.ones([1, 1], dtype=paddle.float32)
+def upfirdn2d(x, f, up=1, down=1, padding=0, flip_filter=False, gain=1):
+    """Slow reference implementation of `upfirdn2d()` using standard PyTorch ops.
+    """
+    # Validate arguments.
+    assert isinstance(x, torch.Tensor) and x.ndim == 4
+    if f is None:
+        f = torch.ones([1, 1], dtype=torch.float32, device=x.device)
+    assert isinstance(f, torch.Tensor) and f.ndim in [1, 2]
+    assert f.dtype == torch.float32 and not f.requires_grad
     batch_size, num_channels, in_height, in_width = x.shape
-    upx, upy = _parse_scaling(up)        # scaling 一变二
-    downx, downy = _parse_scaling(down)  # scaling 一变二
+    upx, upy = _parse_scaling(up)
+    downx, downy = _parse_scaling(down)
     padx0, padx1, pady0, pady1 = _parse_padding(padding)
 
     # Upsample by inserting zeros.
-    # paddle最多支持5维张量，所以分开2次pad。
-    # 根据data_format指定的意义填充(pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back)
-    x = x.reshape([batch_size, num_channels, in_height, 1, in_width])
-    x = paddle.nn.functional.pad(x, [0, 0, 0, upy - 1, 0, 0], data_format="NCDHW")
-    x = x.reshape([batch_size, num_channels, in_height * upy, in_width, 1])
-    x = paddle.nn.functional.pad(x, [0, upx - 1, 0, 0, 0, 0], data_format="NCDHW")
+    x = x.reshape([batch_size, num_channels, in_height, 1, in_width, 1])
+    x = torch.nn.functional.pad(x, [0, upx - 1, 0, 0, 0, upy - 1])
     x = x.reshape([batch_size, num_channels, in_height * upy, in_width * upx])
 
     # Pad or crop.
-    x = F.pad(x, [max(padx0, 0), max(padx1, 0), max(pady0, 0), max(pady1, 0)])
+    x = torch.nn.functional.pad(x, [max(padx0, 0), max(padx1, 0), max(pady0, 0), max(pady1, 0)])
     x = x[:, :, max(-pady0, 0) : x.shape[2] - max(-pady1, 0), max(-padx0, 0) : x.shape[3] - max(-padx1, 0)]
 
     # Setup filter.
-    filter = filter * (gain ** (filter.ndim / 2))
-    assert filter.dtype == x.dtype
-    # filter = paddle.cast(filter, dtype=x.dtype)
+    f = f * (gain ** (f.ndim / 2))
+    f = f.to(x.dtype)
     if not flip_filter:
-        filter = filter.flip(list(range(filter.ndim)))
+        f = f.flip(list(range(f.ndim)))
 
     # Convolve with the filter.
-    filter = paddle.unsqueeze(filter, [0, 1]).tile([num_channels, 1] + [1] * filter.ndim)
-    if filter.ndim == 4:
-        x = F.conv2d(x, weight=filter, groups=num_channels)
+    f = f[np.newaxis, np.newaxis].repeat([num_channels, 1] + [1] * f.ndim)
+    if f.ndim == 4:
+        x = F.conv2d(x, weight=f, groups=num_channels)
     else:
-        x = F.conv2d(x, weight=filter.unsqueeze(2), groups=num_channels)
-        x = F.conv2d(x, weight=filter.unsqueeze(3), groups=num_channels)
+        x = F.conv2d(x, weight=f.unsqueeze(2), groups=num_channels)
+        x = F.conv2d(x, weight=f.unsqueeze(3), groups=num_channels)
 
     # Downsample by throwing away pixels.
-    # 因为:: （paddle.strided_slice()）没有实现二阶梯度，所以用其它等价实现。
-    x222 = x[:, :, ::downy, ::downx]  # RuntimeError: (NotFound) The Op strided_slice_grad doesn't have any grad op.
-    assert downy == downx
-    # if downy == 1:
-    #     pass
-    # elif downy == 2:
-    #     N, C, H, W = x.shape
-    #     # print('rrrrrrrrrrrrrrrrrrr')
-    #     # print(N, C, H, W)
-    #     assert H == W
-    #     pad_height_bottom = 0
-    #     pad_width_right = 0
-    #     if H % 2 == 1:
-    #         pad_height_bottom = 1
-    #         pad_width_right = 1
-    #     stride2_kernel = np.zeros((C, 1, 2, 2), dtype=np.float32)
-    #     stride2_kernel[:, :, 0, 0] = 1.0
-    #     stride2_kernel = paddle.to_tensor(stride2_kernel)
-    #     stride2_kernel.stop_gradient = True
-    #     x = F.conv2d(x, stride2_kernel, bias=None, stride=2, groups=C,
-    #                  padding=[[0, 0], [0, 0], [0, pad_height_bottom], [0, pad_width_right]])
-    # else:
-    #     raise NotImplementedError("downy \'{}\' is not implemented.".format(downy))
-    return x222
+    x = x[:, :, ::downy, ::downx]
+    return x
 
 
 def downsample2d(x, f, down=2, padding=0, flip_filter=False, gain=1):
@@ -318,10 +294,10 @@ def conv2d_resample(x, w, filter=None, up=1, down=1, padding=0, groups=1, flip_w
     # Fast path: upsampling with optional downsampling => use transpose strided convolution.
     if up > 1:
         if groups == 1:
-            w = w.transpose((1, 0, 2, 3))
+            w = w.permute((1, 0, 2, 3))
         else:
             w = w.reshape((groups, out_channels // groups, in_channels_per_group, kh, kw))
-            w = w.transpose((0, 2, 1, 3, 4))
+            w = w.permute((0, 2, 1, 3, 4))
             w = w.reshape((groups * in_channels_per_group, out_channels // groups, kh, kw))
         px0 -= kw - 1
         px1 -= kw - up
@@ -385,7 +361,7 @@ def upsample2d(x, f, up=2, padding=0, flip_filter=False, gain=1):
     return upfirdn2d(x, f, up=up, padding=p, flip_filter=flip_filter, gain=gain*upx*upy)
 
 
-class Conv2dLayer(nn.Layer):
+class Conv2dLayer(nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
         out_channels,                   # Number of output channels.
@@ -429,22 +405,24 @@ class Conv2dLayer(nn.Layer):
 
         self.act_gain = def_gain
 
+        memory_format = torch.channels_last if channels_last else torch.contiguous_format
+        weight = torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format)
+        bias = torch.zeros([out_channels]) if bias else None
         if trainable:
-            self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                                default_initializer=paddle.nn.initializer.Normal())
-            self.bias = self.create_parameter([out_channels], is_bias=True,
-                                              default_initializer=paddle.nn.initializer.Constant(0.0)) if bias else None
+            self.weight = torch.nn.Parameter(weight)
+            self.bias = torch.nn.Parameter(bias) if bias is not None else None
         else:
-            self.weight = self.create_parameter([out_channels, in_channels, kernel_size, kernel_size],
-                                                default_initializer=paddle.nn.initializer.Constant(1.0))
-            self.weight.stop_gradient = True
-            self.bias = None
+            self.register_buffer('weight', weight)
+            if bias is not None:
+                self.register_buffer('bias', bias)
+            else:
+                self.bias = None
 
     def forward(self, x, gain=1):
         w = self.weight * self.weight_gain
-        b = paddle.cast(self.bias, dtype=x.dtype) if self.bias is not None else None
-        flip_weight = (self.up == 1)  # slightly faster
-        x = conv2d_resample(x=x, w=paddle.cast(w, dtype=x.dtype), filter=self.resample_filter, up=self.up, down=self.down, padding=self.padding, flip_weight=flip_weight)
+        b = self.bias.to(x.dtype) if self.bias is not None else None
+        flip_weight = (self.up == 1) # slightly faster
+        x = conv2d_resample(x=x, w=w.to(x.dtype), filter=self.resample_filter, up=self.up, down=self.down, padding=self.padding, flip_weight=flip_weight)
 
         act_gain = self.act_gain * gain
         act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
@@ -452,7 +430,7 @@ class Conv2dLayer(nn.Layer):
         return x
 
 
-class FullyConnectedLayer(nn.Layer):
+class FullyConnectedLayer(nn.Module):
     def __init__(self,
         in_features,                # Number of input features.
         out_features,               # Number of output features.
@@ -463,68 +441,32 @@ class FullyConnectedLayer(nn.Layer):
     ):
         super().__init__()
         self.activation = activation
-        self.weight = self.create_parameter([out_features, in_features],
-                                            default_initializer=paddle.nn.initializer.Normal(mean=0.0, std=1.0 / lr_multiplier))
-        self.bias = self.create_parameter([out_features], is_bias=True,
-                                          default_initializer=paddle.nn.initializer.Constant(bias_init)) if bias else None
+        self.weight = torch.nn.Parameter(torch.randn([out_features, in_features]) / lr_multiplier)
+        self.bias = torch.nn.Parameter(torch.full([out_features], np.float32(bias_init))) if bias else None
         self.weight_gain = lr_multiplier / np.sqrt(in_features)
         self.bias_gain = lr_multiplier
 
-    def forward(self, x, dic2=None, pre_name=None):
-        assert self.weight.dtype == x.dtype
-        # w = paddle.cast(self.weight, dtype=x.dtype) * self.weight_gain
-        w = self.weight * self.weight_gain
+    def forward(self, x):
+        w = self.weight.to(x.dtype) * self.weight_gain
         b = self.bias
         if b is not None:
-            assert b.dtype == x.dtype
-            # b = paddle.cast(b, dtype=x.dtype)
+            b = b.to(x.dtype)
             if self.bias_gain != 1:
                 b = b * self.bias_gain
 
         if self.activation == 'linear' and b is not None:
-            # out = paddle.addmm(b.unsqueeze(0), x, w.t())   # 因为paddle.addmm()没有实现二阶梯度，所以用其它等价实现。
-            out = paddle.matmul(x, w, transpose_y=True) + b.unsqueeze(0)
-            if dic2 is not None:
-                dout_dx = paddle.grad(
-                    outputs=[out.sum()],
-                    inputs=[x],
-                    create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-                    retain_graph=True)[0]
-                aaaaaaaaaaa1 = dic2[pre_name + '_dout_dx']
-                aaaaaaaaaaa2 = dout_dx.numpy()
-                ddd = np.sum((dic2[pre_name + '_dout_dx'] - dout_dx.numpy()) ** 2)
-                print('ddd=%.6f' % ddd)
+            x = torch.addmm(b.unsqueeze(0), x, w.t())
         else:
-            r = x.matmul(w.t())
-            out = bias_act(r, b, act=self.activation)
-            if dic2 is not None:
-                dr_dx = paddle.grad(
-                    outputs=[r.sum()],
-                    inputs=[x],
-                    create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-                    retain_graph=True)[0]
-                aaaaaaaaaaa1 = dic2[pre_name + '_dr_dx']
-                aaaaaaaaaaa2 = dr_dx.numpy()
-                ddd = np.sum((dic2[pre_name + '_dr_dx'] - dr_dx.numpy()) ** 2)
-                print('ddd=%.6f' % ddd)
-
-                dout_dr = paddle.grad(
-                    outputs=[out.sum()],
-                    inputs=[r],
-                    create_graph=False,  # 最终loss里包含梯度，需要求梯度的梯度，所以肯定需要建立反向图。
-                    retain_graph=True)[0]
-                aaaaaaaaaaa1 = dic2[pre_name + '_dout_dr']
-                aaaaaaaaaaa2 = dout_dr.numpy()
-                ddd = np.sum((dic2[pre_name + '_dout_dr'] - dout_dr.numpy()) ** 2)
-                print('ddd=%.6f' % ddd)
-        return out
+            x = x.matmul(w.t())
+            x = bias_act.bias_act(x, b, act=self.activation)
+        return x
 
 
 def normalize_2nd_moment(x, dim=1, eps=1e-8):
-    return x * (x.square().mean(axis=dim, keepdim=True) + eps).rsqrt()
+    return x * (x.square().mean(dim=dim, keepdim=True) + eps).rsqrt()
 
 
-class StyleGANv2ADA_MappingNetwork(nn.Layer):
+class StyleGANv2ADA_MappingNetwork(nn.Module):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality, 0 = no latent.
         c_dim,                      # Conditioning label (C) dimensionality, 0 = no label.
@@ -703,7 +645,7 @@ def modulated_conv2d(
     return x
 
 
-class Spade_Conv2dLayer(nn.Layer):
+class Spade_Conv2dLayer(nn.Module):
     def __init__(self,
                  in_channels,  # Number of input channels.
                  out_channels,  # Number of output channels.
@@ -768,7 +710,7 @@ class Spade_Conv2dLayer(nn.Layer):
 
         return x
 
-class Spade_Norm_Block(nn.Layer):
+class Spade_Norm_Block(nn.Module):
     def __init__(self,
         in_channels,
         norm_channels,
@@ -792,7 +734,7 @@ class Spade_Norm_Block(nn.Layer):
         return out
 
 
-class Spade_ResBlock(nn.Layer):
+class Spade_ResBlock(nn.Module):
     def __init__(self,
                  in_channels,  # Number of input channels.
                  out_channels,  # Number of output channels.
@@ -841,7 +783,7 @@ class Spade_ResBlock(nn.Layer):
         x = y + x
         return x
 
-class SynthesisLayer(nn.Layer):
+class SynthesisLayer(nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
         out_channels,                   # Number of output channels.
@@ -963,7 +905,7 @@ class SynthesisLayer(nn.Layer):
 
 
 
-class ToRGBLayer(nn.Layer):
+class ToRGBLayer(nn.Module):
     def __init__(self, in_channels, out_channels, w_dim, kernel_size=1, conv_clamp=None, channels_last=False):
         super().__init__()
         self.conv_clamp = conv_clamp
@@ -986,12 +928,7 @@ class ToRGBLayer(nn.Layer):
         return x
 
 
-'''
-兼容原版仓库的
-SynthesisBlockFull
-SynthesisBlockV18
-'''
-class SynthesisBlock(nn.Layer):
+class SynthesisBlock(nn.Module):
     def __init__(self,
         in_channels,                        # Number of input channels, 0 = first block.
         out_channels,                       # Number of output channels.
@@ -1092,7 +1029,7 @@ class SynthesisBlock(nn.Layer):
 
 
 
-class StyleGANv2ADA_SynthesisNetwork(nn.Layer):
+class StyleGANv2ADA_SynthesisNetwork(nn.Module):
     def __init__(self,
         w_dim,                      # Intermediate latent (W) dimensionality.
         img_resolution,             # Output image resolution.
@@ -1281,7 +1218,7 @@ def rotate2d_inv(theta, **kwargs):
 # be enabled by setting their probability multipliers to 1.
 
 
-class StyleGANv2ADA_AugmentPipe(nn.Layer):
+class StyleGANv2ADA_AugmentPipe(nn.Module):
     def __init__(self,
         xflip=0, rotate90=0, xint=0, xint_max=0.125,
         scale=0, rotate=0, aniso=0, xfrac=0, scale_std=0.2, rotate_max=1, aniso_std=0.2, xfrac_std=0.125,
