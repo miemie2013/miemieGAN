@@ -792,32 +792,21 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
                 self.num_ws += block.num_torgb
             setattr(self, f'b{res}', block)
 
-    def forward(self, ws, dic2, pre_name, **block_kwargs):
-        # block_ws = []
-        # ws2 = paddle.cast(ws, dtype='float32')
-
-        starts = []
-        single_ws = []
-        _dim = ws.shape[1]
-        for i in range(_dim):
-            single_ws.append(ws[:, i, :])
-        w_idx = 0
-        for res in self.block_resolutions:
-            block = getattr(self, f'b{res}')
-            # block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
-            # block_ws.append(ws[:, w_idx:w_idx + block.num_conv + block.num_torgb, :])
-            starts.append(w_idx)
-            w_idx += block.num_conv
+    def forward(self, ws, **block_kwargs):
+        block_ws = []
+        with torch.autograd.profiler.record_function('split_ws'):
+            ws = ws.to(torch.float32)
+            w_idx = 0
+            for res in self.block_resolutions:
+                block = getattr(self, f'b{res}')
+                block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
+                w_idx += block.num_conv
 
         x = img = None
-        # for res, cur_ws in zip(self.block_resolutions, block_ws):
-        #     block = getattr(self, f'b{res}')
-        #     x, img = block(x, img, cur_ws, **block_kwargs)
-        for res, start in zip(self.block_resolutions, starts):
+        for res, cur_ws in zip(self.block_resolutions, block_ws):
             block = getattr(self, f'b{res}')
-            x, img = block(x, img, single_ws, start, dic2, pre_name + '_b%d'%res, **block_kwargs)
-        # return img, block_ws
-        return img, single_ws
+            x, img = block(x, img, cur_ws, **block_kwargs)
+        return img
 
 
 
