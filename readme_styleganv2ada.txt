@@ -6,15 +6,15 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 
 梯度对齐：
-1.设置StyleGANv2ADAModel的(原版仓库也要设置)
+1.(原版仓库也要设置)设置 StyleGANv2ADAModel 的
     self.augment_pipe = None
     self.style_mixing_prob = -1.0
 2.设置学习率与原版仓库相等
-3.设置SynthesisLayer的(原版仓库也要设置)
+3.(原版仓库也要设置)设置 SynthesisLayer 的
     self.use_noise = False
-4.设置StyleGANv2ADA_SynthesisNetwork的(原版仓库也要设置)
+4.(原版仓库也要设置)设置 StyleGANv2ADA_SynthesisNetwork 的
     use_fp16 = False
-5.设置StyleGANv2ADA_Discriminator的(原版仓库也要设置)
+5.(原版仓库也要设置)设置 StyleGANv2ADA_Discriminator 的
     use_fp16 = False
 
 
