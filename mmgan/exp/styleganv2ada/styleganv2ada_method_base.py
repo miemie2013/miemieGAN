@@ -102,6 +102,12 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping_kwargs={},
             epilogue_kwargs=dict(mbstd_group_size=8,),
         )
+        self.model_cfg = dict(
+            G_reg_interval=self.G_reg_interval,
+            D_reg_interval=self.D_reg_interval,
+            r1_gamma=0.5,
+            pl_batch_shrink=2,  # default is 2. when train batch_size is 1, set to 1.
+        )
 
         # ---------------- dataset config ---------------- #
         self.dataroot = '../data/data42681/afhq/train/cat'
@@ -124,10 +130,9 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
             discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
-            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema, discriminator=discriminator,
-                                            G_reg_interval=4, D_reg_interval=16, augment_pipe=None,
-                                            style_mixing_prob=0.9, r1_gamma=10, pl_batch_shrink=2,
-                                            pl_decay=0.01, pl_weight=2.0)
+            augment_pipe = None
+            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
+                                            discriminator=discriminator, augment_pipe=augment_pipe, **self.model_cfg)
         return self.model
 
     def get_data_loader(
