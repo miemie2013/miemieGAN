@@ -141,33 +141,39 @@ class StyleGANv2ADAModel(torch.nn.Module):
         logits = self.discriminator(img, c)
         return logits
 
-    # 梯度累加（变相增大批大小）。
+    # 梯度累加（变相增大批大小）。dic2是为了梯度对齐。
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain):
+    # def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain, dic2=None):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         do_Gmain = (phase in ['Gmain', 'Gboth'])
         do_Dmain = (phase in ['Dmain', 'Dboth'])
         do_Gpl   = (phase in ['Greg', 'Gboth']) and (self.pl_weight != 0)
         do_Dr1   = (phase in ['Dreg', 'Dboth']) and (self.r1_gamma != 0)
 
-        # dic2 = np.load('../data77.npz')
-
         loss_numpy = {}
 
         # Gmain: Maximize logits for generated images.
         if do_Gmain:
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
+            # aaaaaaaaa1 = dic2[phase + 'gen_img']
+            # aaaaaaaaa2 = gen_img.cpu().detach().numpy()
+            # ddd = np.mean((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
+            # ddd = np.mean((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
 
             gen_logits = self.run_D(gen_img, gen_c, sync=False)
+            # ddd = np.mean((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
 
             loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
-            loss_Gmain = loss_Gmain.mean()
+            # loss_Gmain = loss_Gmain.mean()
+            # loss_numpy['loss_Gmain'] = loss_Gmain.cpu().detach().numpy()
 
-            loss_numpy['loss_Gmain'] = loss_Gmain.cpu().detach().numpy()
-
-            loss_G = loss_Gmain
-
-            loss_G = loss_G * float(gain)
-            loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            # loss_G = loss_Gmain
+            # loss_G = loss_G * float(gain)
+            # loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            loss_Gmain.mean().mul(gain).backward()
 
         # Gpl: Apply path length regularization.
         if do_Gpl:
@@ -182,10 +188,19 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 gen_c_ = gen_c[:batch_size]
 
             gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
+            # ddd = np.mean((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
+            # ddd = np.mean((dic2[phase + 'gen_ws'] - gen_ws.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
             pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+            # pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
             pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True, only_inputs=True)[0]
 
             pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
+            # ddd = np.mean((dic2[phase + 'pl_grads'] - pl_grads.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
+            # ddd = np.mean((dic2[phase + 'pl_lengths'] - pl_lengths.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
             if self.pl_mean is None:
                 self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=pl_lengths.device)
             pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
@@ -194,21 +209,29 @@ class StyleGANv2ADAModel(torch.nn.Module):
             pl_penalty = (pl_lengths - pl_mean).square()
             loss_Gpl = pl_penalty * self.pl_weight
 
-            loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
-            loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
-            loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            # loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
+            # loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
+            # loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(gain).backward()
 
         # Dmain: Minimize logits for generated images.
-        loss3 = 0.0
+        # loss3 = 0.0
         if do_Dmain:
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=False)
+            # ddd = np.mean((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
+            # ddd = np.mean((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
             gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
+            # ddd = np.mean((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
 
             loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
-            loss_Dgen = loss_Dgen.mean()
-            loss_numpy['loss_Dgen'] = loss_Dgen.cpu().detach().numpy()
+            loss_Dgen.mean().mul(gain).backward()
+            # loss_Dgen = loss_Dgen.mean()
+            # loss_numpy['loss_Dgen'] = loss_Dgen.cpu().detach().numpy()
 
-            loss3 = loss_Dgen * float(gain)
+            # loss3 = loss_Dgen * float(gain)
 
         # Dmain: Maximize logits for real images.
         # Dr1: Apply R1 regularization.
@@ -217,23 +240,32 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
             real_img_tmp = real_img.detach().requires_grad_(do_Dr1)
             real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
+            # ddd = np.mean((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
+            # print('ddd=%.6f' % ddd)
 
             loss_Dreal = 0
             if do_Dmain:
                 loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
-                loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
+                # ddd = np.mean((dic2[phase + 'loss_Dreal'] - loss_Dreal.cpu().detach().numpy()) ** 2)
+                # print('ddd=%.6f' % ddd)
+                # loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
 
             loss_Dr1 = 0
             if do_Dr1:
                 r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
+                # ddd = np.mean((dic2[phase + 'r1_grads'] - r1_grads.cpu().detach().numpy()) ** 2)
+                # print('ddd=%.6f' % ddd)
                 r1_penalty = r1_grads.square().sum([1, 2, 3])
+                # ddd = np.mean((dic2[phase + 'r1_penalty'] - r1_penalty.cpu().detach().numpy()) ** 2)
+                # print('ddd=%.6f' % ddd)
                 loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
-                loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
+                # loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
 
-            loss4 = (loss_Dreal + loss_Dr1).mean() * float(gain)
-            if do_Dmain:
-                loss4 += loss3
-            loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            # loss4 = (loss_Dreal + loss_Dr1).mean() * float(gain)
+            # if do_Dmain:
+            #     loss4 += loss3
+            # loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+            (real_logits * 0 + loss_Dreal + loss_Dr1).mean().mul(gain).backward()
         return loss_numpy
 
     def train_iter(self, optimizers=None):
@@ -241,9 +273,12 @@ class StyleGANv2ADAModel(torch.nn.Module):
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
+        # 对齐梯度用
         # print('======================== batch%.5d.npz ========================'%self.batch_idx)
-        # dic2 = np.load('batch%.5d.npz'%self.batch_idx)
-        # phase_real_img = paddle.to_tensor(dic2['phase_real_img'], dtype=phase_real_img.dtype)
+        # # dic2 = np.load('batch%.5d.npz'%self.batch_idx)
+        # dic2 = np.load('tools/batch%.5d.npz'%self.batch_idx)
+        # aaaaaaaaa = dic2['phase_real_img']
+        # phase_real_img = torch.Tensor(aaaaaaaaa).cuda().to(torch.float32)
 
         phase_real_img = phase_real_img / 127.5 - 1
 
@@ -256,6 +291,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
         batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
         if self.z_dim > 0:
             all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
+            # bbbbbbbbb = dic2['all_gen_z']
+            # all_gen_z = torch.Tensor(bbbbbbbbb).cuda().to(torch.float32)
         else:
             all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
         phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
@@ -284,9 +321,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 continue
 
             # Initialize gradient accumulation.  咩酱：初始化梯度累加（变相增大批大小）。
-            self._reset_grad(optimizers)  # 梯度清0
+            # self._reset_grad(optimizers)  # 梯度清0
             # if 'G' in phase['name']:
-            #     # self.nets['synthesis'].trainable = False
             #     for name, param in self.nets['synthesis'].named_parameters():
             #         param.stop_gradient = False
             #     for name, param in self.nets['mapping'].named_parameters():
@@ -300,6 +336,13 @@ class StyleGANv2ADAModel(torch.nn.Module):
             #         param.stop_gradient = True
             #     for name, param in self.nets['discriminator'].named_parameters():
             #         param.stop_gradient = False
+            if 'G' in phase['name']:
+                optimizers['optimizer_G'].zero_grad(set_to_none=True)
+                self.mapping.requires_grad_(True)
+                self.synthesis.requires_grad_(True)
+            elif 'D' in phase['name']:
+                optimizers['optimizer_D'].zero_grad(set_to_none=True)
+                self.discriminator.requires_grad_(True)
 
             # 梯度累加。一个总的批次的图片分开{显卡数量}次遍历。
             # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
@@ -308,6 +351,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 gain = phase['interval']     # 咩酱：即上文提到的训练间隔。
 
                 # 梯度累加（变相增大批大小）。
+                # loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
+                #                                        gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain, dic2=dic2)
                 loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
                                                        gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain)
                 for k, v in loss_numpy.items():
@@ -323,10 +368,13 @@ class StyleGANv2ADAModel(torch.nn.Module):
             # for param in phase.module.parameters():
             #     if param.grad is not None:
             #         misc.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
-            # if 'G' in phase['name']:
-            #     optimizers['generator'].step()  # 更新参数
-            # elif 'D' in phase['name']:
-            #     optimizers['discriminator'].step()  # 更新参数
+            if 'G' in phase['name']:
+                self.mapping.requires_grad_(False)
+                self.synthesis.requires_grad_(False)
+                optimizers['optimizer_G'].step()  # 更新参数
+            elif 'D' in phase['name']:
+                self.discriminator.requires_grad_(False)
+                optimizers['optimizer_D'].step()  # 更新参数
 
         # compute moving average of network parameters。指数滑动平均
         # soft_update(self.synthesis,

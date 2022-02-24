@@ -106,19 +106,17 @@ class Trainer:
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             self.model.setup_input(data)
             outputs = self.model.train_iter(self.optimizers)
-        else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
-
-        # 修改学习率
-        lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
-        if self.archi_name == 'StyleGANv2ADA':
+            # 修改学习率
+            lr_G = self.lr_scheduler_G.update_lr(self.progress_in_iter + 1)
+            lr_D = self.lr_scheduler_D.update_lr(self.progress_in_iter + 1)
             for param_group in self.optimizer_G.param_groups:
-                param_group["lr"] = lr
+                param_group["lr"] = lr_G
             for param_group in self.optimizer_D.param_groups:
-                param_group["lr"] = lr
+                param_group["lr"] = lr_D
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
+
 
         iter_end_time = time.time()
         # 删去所有loss的键值对，避免打印loss时出现None错误。
@@ -129,7 +127,7 @@ class Trainer:
         self.meter.update(
             iter_time=iter_end_time - iter_start_time,
             data_time=data_end_time - iter_start_time,
-            lr=lr,
+            lr=lr_G,
             **outputs,
         )
 
@@ -218,15 +216,18 @@ class Trainer:
                 batch_size=self.args.eval_batch_size,
                 is_distributed=self.is_distributed,
             )
+
+            # max_iter means iters per epoch
+            self.max_iter = len(self.train_loader)
+            self.lr_scheduler_G = self.exp.get_lr_scheduler(
+                self.base_lr_G, self.max_iter
+            )
+            self.lr_scheduler_D = self.exp.get_lr_scheduler(
+                self.base_lr_D, self.max_iter
+            )
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
-        # max_iter means iters per epoch
-        self.max_iter = len(self.train_loader)
-
-        self.lr_scheduler = self.exp.get_lr_scheduler(
-            self.exp.basic_lr_per_img * self.args.batch_size, self.max_iter
-        )
         if self.args.occupy:
             occupy_mem(self.local_rank)
 

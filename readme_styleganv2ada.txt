@@ -16,6 +16,15 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
     use_fp16 = False
 5.(原版仓库也要设置)设置 StyleGANv2ADA_Discriminator 的
     use_fp16 = False
+6.计算loss_Gpl那里，
+pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+改为
+pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+
+7.如果显存不足，借用一下11G的卡
+
+8.原版仓库先设置不让优化器更新参数，即注释掉phase.opt.step()，先对齐前20个step的输出；
+输出完全对齐后phase.opt.step()解除注释，再继续对齐。
 
 
 
