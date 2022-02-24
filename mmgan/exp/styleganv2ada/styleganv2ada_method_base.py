@@ -27,6 +27,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
 
         self.max_epoch = None
         self.kimgs = 25000
+        # self.kimgs = 30
         self.print_interval = 10
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
@@ -103,6 +104,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             D_reg_interval=self.D_reg_interval,
             r1_gamma=0.5,
             pl_batch_shrink=2,  # default is 2. when train batch_size is 1, set to 1.
+            ema_kimg=20,
+            ema_rampup=None,
         )
 
         # ---------------- dataset config ---------------- #

@@ -8,41 +8,9 @@ import sys
 
 
 def soft_update(source, target, beta=1.0):
-    '''
-    ema:
-    target = beta * source + (1. - beta) * target
-
-    '''
     assert 0.0 <= beta <= 1.0
-
-    if isinstance(source, paddle.DataParallel):
-        source = source._layers
-
-    target_model_map = dict(target.named_parameters())
-    for param_name, source_param in source.named_parameters():
-        target_param = target_model_map[param_name]
-        target_param.set_value(beta * source_param +
-                               (1.0 - beta) * target_param)
-
-
-def dump_model(model):
-    params = {}
-    for k in model.state_dict().keys():
-        if k.endswith('.scale'):
-            params[k] = model.state_dict()[k].shape
-    return params
-
-
-
-def he_init(module):
-    if isinstance(module, nn.Conv2D):
-        kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
-        if module.bias is not None:
-            constant_(module.bias, 0)
-    if isinstance(module, nn.Linear):
-        kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
-        if module.bias is not None:
-            constant_(module.bias, 0)
+    for param, param_test in zip(source.parameters(), target.parameters()):
+        param_test.data = torch.lerp(param.data, param_test.data, beta)
 
 
 class StyleGANv2ADAModel(torch.nn.Module):
@@ -61,6 +29,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
         pl_batch_shrink=2,
         pl_decay=0.01,
         pl_weight=2.0,
+        ema_kimg=10,
+        ema_rampup=None,
     ):
         super(StyleGANv2ADAModel, self).__init__()
         self.optimizers = OrderedDict()
@@ -90,6 +60,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 self.phases += [dict(name=name + 'reg', interval=reg_interval)]
 
         self.z_dim = self.mapping.z_dim
+        self.cur_nimg = 0
         self.batch_idx = 0
 
         # loss config.
@@ -102,6 +73,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.pl_weight = pl_weight
 
         self.pl_mean = None
+        self.ema_kimg = ema_kimg
+        self.ema_rampup = ema_rampup
 
 
 
@@ -377,12 +350,25 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 optimizers['optimizer_D'].step()  # 更新参数
 
         # compute moving average of network parameters。指数滑动平均
-        # soft_update(self.synthesis,
-        #             self.synthesis_ema,
-        #             beta=0.999)
-        # soft_update(self.mapping,
-        #             self.mapping_ema,
-        #             beta=0.999)
+        self.mapping_ema.requires_grad_(False)
+        self.synthesis_ema.requires_grad_(False)
+        ema_kimg = self.ema_kimg
+        ema_nimg = ema_kimg * 1000
+        ema_rampup = self.ema_rampup
+        cur_nimg = self.cur_nimg
+        if ema_rampup is not None:
+            ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
+        ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
+        for p_ema, p in zip(self.mapping_ema.parameters(), self.mapping.parameters()):
+            p_ema.copy_(p.lerp(p_ema, ema_beta))
+        for b_ema, b in zip(self.mapping_ema.buffers(), self.mapping.buffers()):
+            b_ema.copy_(b)
+        for p_ema, p in zip(self.synthesis_ema.parameters(), self.synthesis.parameters()):
+            p_ema.copy_(p.lerp(p_ema, ema_beta))
+        for b_ema, b in zip(self.synthesis_ema.buffers(), self.synthesis.buffers()):
+            b_ema.copy_(b)
+
+        self.cur_nimg += batch_size
         self.batch_idx += 1
         return loss_numpys
 
