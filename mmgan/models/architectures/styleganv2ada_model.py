@@ -126,7 +126,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
     def run_G(self, z, c, sync):
         # print('------------------ run_G -------------------')
         ws = self.mapping(z, c)
-        self.style_mixing_prob = -1.0
+        # self.style_mixing_prob = -1.0
         if self.style_mixing_prob > 0:
             cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
             cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
@@ -342,7 +342,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         z = self.input['z']
 
         class_idx = None
-        label = torch.zeros([1, self.c_dim])
+        label = torch.zeros([1, self.c_dim], device=z.device)
         if self.c_dim != 0:
             if class_idx is None:
                 print('Must specify class label with --class when using a conditional network')

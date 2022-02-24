@@ -4,6 +4,7 @@
 
 import datetime
 import os
+import cv2
 import math
 import time
 import numpy as np
@@ -212,6 +213,11 @@ class Trainer:
 
             logger.info("init prefetcher, this might take one minute or less...")
             self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
+
+            self.test_loader = self.exp.get_eval_loader(
+                batch_size=self.args.eval_batch_size,
+                is_distributed=self.is_distributed,
+            )
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -269,12 +275,22 @@ class Trainer:
         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
-            # all_reduce_norm(self.model)
-            # self.evaluate_and_save_model()
+            self.model.eval()
             if self.archi_name == 'StyleGANv2ADA':
-                pass
+                for seed_idx, data in enumerate(self.test_loader):
+                    for k, v in data.items():
+                        data[k] = v.cuda()
+                    self.model.setup_input(data)
+                    with torch.no_grad():
+                        img_bgr = self.model.test_iter()
+                        save_folder = os.path.join(self.file_name, 'snapshot_imgs')
+                        os.makedirs(save_folder, exist_ok=True)
+                        save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seedidx{seed_idx:08d}.png')
+                        logger.info("Saving generation result in {}".format(save_file_name))
+                        cv2.imwrite(save_file_name, img_bgr)
             else:
                 raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
+            self.model.train()
 
     def before_iter(self):
         pass

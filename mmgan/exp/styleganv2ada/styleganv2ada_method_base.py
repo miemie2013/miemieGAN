@@ -114,6 +114,10 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             xflip=False,
             len_phases=4,
         )
+        self.dataset_test_cfg = dict(
+            seeds=[85, 100, 75, 458, 1500],
+            z_dim=self.z_dim,
+        )
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
@@ -227,23 +231,9 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         )
         return scheduler
 
-    def get_eval_loader(self, batch_size, is_distributed, testdev=False):
+    def get_eval_loader(self, batch_size, is_distributed):
         from mmgan.data import StyleGANv2ADATestDataset
-
-        # 预测时的数据预处理
-        decodeImage = DecodeImage(**self.decodeImage)
-        resizeImage = ResizeImage(target_size=self.test_size[0], interp=self.resizeImage['interp'])
-        normalizeImage = NormalizeImage(**self.normalizeImage)
-        permute = Permute(**self.permute)
-        transforms = [decodeImage, resizeImage, normalizeImage, permute]
-        val_dataset = StyleGANv2ADATestDataset(
-            data_dir=self.data_dir,
-            json_file=self.val_ann if not testdev else "image_info_test-dev2017.json",
-            ann_folder=self.ann_folder,
-            name=self.val_image_folder if not testdev else "test2017",
-            cfg=self,
-            transforms=transforms,
-        )
+        val_dataset = StyleGANv2ADATestDataset(**self.dataset_test_cfg)
 
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
@@ -254,7 +244,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             sampler = torch.utils.data.SequentialSampler(val_dataset)
 
         dataloader_kwargs = {
-            "num_workers": self.data_num_workers,
+            "num_workers": 0,
             "pin_memory": True,
             "sampler": sampler,
         }
