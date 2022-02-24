@@ -267,4 +267,4 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         pass
 
     def eval(self, model, evaluator, is_distributed, half=False):
-        return evaluator.evaluate_ppyolo(model, is_distributed, half)
+        pass

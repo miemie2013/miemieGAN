@@ -120,6 +120,11 @@ class Trainer:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
         iter_end_time = time.time()
+        # 删去所有loss的键值对，避免打印loss时出现None错误。
+        if (self.iter + 1) % self.exp.print_interval == 0:
+            loss_meter = self.meter.get_filtered_meter("loss")
+            for key in loss_meter.keys():
+                del self.meter[key]
         self.meter.update(
             iter_time=iter_end_time - iter_start_time,
             data_time=data_end_time - iter_start_time,
@@ -264,8 +269,12 @@ class Trainer:
         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
-            all_reduce_norm(self.model)
-            self.evaluate_and_save_model()
+            # all_reduce_norm(self.model)
+            # self.evaluate_and_save_model()
+            if self.archi_name == 'StyleGANv2ADA':
+                pass
+            else:
+                raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
     def before_iter(self):
         pass
@@ -316,7 +325,11 @@ class Trainer:
             ckpt = torch.load(ckpt_file, map_location=self.device)
             # resume the model/optimizer state dict
             model.load_state_dict(ckpt["model"])
-            self.optimizer.load_state_dict(ckpt["optimizer"])
+            if self.archi_name == 'StyleGANv2ADA':
+                self.optimizer_G.load_state_dict(ckpt["optimizer_G"])
+                self.optimizer_D.load_state_dict(ckpt["optimizer_D"])
+            else:
+                raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
             # resume the training states variables
             start_epoch = ckpt["start_epoch"]
             self.start_epoch = start_epoch
@@ -357,11 +370,15 @@ class Trainer:
         if self.rank == 0:
             save_model = self.model
             logger.info("Save weights to {}".format(self.file_name))
-            ckpt_state = {
-                "start_epoch": self.epoch + 1,
-                "model": save_model.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-            }
+            if self.archi_name == 'StyleGANv2ADA':
+                ckpt_state = {
+                    "start_epoch": self.epoch + 1,
+                    "model": save_model.state_dict(),
+                    "optimizer_G": self.optimizer_G.state_dict(),
+                    "optimizer_D": self.optimizer_D.state_dict(),
+                }
+            else:
+                raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
             save_checkpoint(
                 ckpt_state,
                 update_best_ckpt,

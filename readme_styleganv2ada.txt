@@ -32,7 +32,7 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 
 
 ----------------------- 恢复训练（加上参数--resume） -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1 -c PPYOLO_outputs/ppyolo_r50vd_2x/13.pth --resume
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 2 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_afhqcat/7.pth --resume
 
 
 
