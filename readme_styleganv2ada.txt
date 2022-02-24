@@ -5,6 +5,21 @@ nvidia-smi
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 
+梯度对齐：
+1.设置StyleGANv2ADAModel的(原版仓库也要设置)
+    self.augment_pipe = None
+    self.style_mixing_prob = -1.0
+2.设置学习率与原版仓库相等
+3.设置SynthesisLayer的(原版仓库也要设置)
+    self.use_noise = False
+4.设置StyleGANv2ADA_SynthesisNetwork的(原版仓库也要设置)
+    use_fp16 = False
+5.设置StyleGANv2ADA_Discriminator的(原版仓库也要设置)
+    use_fp16 = False
+
+
+
+
 ----------------------- 转换权重 -----------------------
 python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c_G G_afhqcat.pth -c_Gema G_ema_afhqcat.pth -c_D D_afhqcat.pth -oc styleganv2ada_512_afhqcat.pth
 
