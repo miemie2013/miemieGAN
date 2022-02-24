@@ -35,8 +35,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # learning_rate
         self.scheduler = "warm_piecewisedecay"
         self.warmup_epochs = -1
-        # self.basic_lr_per_img = 0.0025 / 64.0
-        self.basic_lr_per_img = 0.0025 / 2.0
+        self.basic_lr_per_img = 0.0025 / 64.0
+        # self.basic_lr_per_img = 0.0025 / 2.0
         self.start_factor = 0.0
         self.decay_gamma = 0.1
         self.milestones_epoch = [99999998, 99999999]
