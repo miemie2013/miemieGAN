@@ -103,7 +103,7 @@ class MinibatchStdLayer(nn.Module):
         y = (y + 1e-8).sqrt()               # [nFcHW]  Calc stddev over group.
         y = y.mean([2, 3, 4])               # [nF]     Take average over channels and pixels.
         y = y.reshape((-1, F, 1, 1))          # [nF11]   Add missing dimensions.
-        y = y.tile([G, 1, H, W])            # [NFHW]   Replicate over group and pixels.
+        y = y.repeat([G, 1, H, W])            # [NFHW]   Replicate over group and pixels.
         x = torch.cat([x, y], 1)            # [NCHW]   Append to input as new channels.
         return x
 

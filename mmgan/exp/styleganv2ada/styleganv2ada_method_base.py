@@ -24,15 +24,11 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # --------------  training config --------------------- #
         self.G_reg_interval = 4
         self.D_reg_interval = 16
-        self.max_epoch = 811
-        self.aug_epochs = 811  # 前几轮进行mixup、cutmix、mosaic
 
-        self.ema = True
-        self.ema_decay = 0.9998
-        self.weight_decay = 5e-4
-        self.momentum = 0.9
-        self.print_interval = 20
-        self.eval_interval = 10
+        self.max_epoch = None
+        self.kimgs = 25000
+        self.print_interval = 10
+        self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate

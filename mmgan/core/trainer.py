@@ -43,14 +43,12 @@ class Trainer:
         self.args = args
 
         # training related attr
-        self.max_epoch = exp.max_epoch
         self.amp_training = args.fp16
         self.scaler = torch.cuda.amp.GradScaler(enabled=args.fp16)
         self.is_distributed = get_world_size() > 1
         self.rank = get_rank()
         self.local_rank = get_local_rank()
         self.device = "cuda:{}".format(self.local_rank)
-        self.use_model_ema = exp.ema
 
         # data/dataloader related attr
         self.data_type = torch.float16 if args.fp16 else torch.float32
@@ -107,11 +105,6 @@ class Trainer:
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             self.model.setup_input(data)
             outputs = self.model.train_iter(self.optimizers)
-
-            loss = outputs["total_loss"]
-
-            if self.use_model_ema:
-                self.ema_model.update(self.model)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -119,7 +112,9 @@ class Trainer:
         # 修改学习率
         lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
         if self.archi_name == 'StyleGANv2ADA':
-            for param_group in self.optimizer.param_groups:
+            for param_group in self.optimizer_G.param_groups:
+                param_group["lr"] = lr
+            for param_group in self.optimizer_D.param_groups:
                 param_group["lr"] = lr
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
@@ -200,6 +195,15 @@ class Trainer:
                 is_distributed=self.is_distributed,
                 cache_img=self.args.cache,
             )
+            # 一轮的步数。
+            train_steps = self.exp.dataset.train_steps
+            # 一轮的图片数。
+            one_epoch_imgs = train_steps * self.args.batch_size
+            # 算出需要的训练轮数并写入。
+            self.exp.max_epoch = self.exp.kimgs * 1000 // one_epoch_imgs
+            if self.exp.kimgs * 1000 % one_epoch_imgs != 0:
+                self.exp.max_epoch += 1
+            self.max_epoch = self.exp.max_epoch
 
             logger.info("init prefetcher, this might take one minute or less...")
             self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
@@ -217,10 +221,6 @@ class Trainer:
 
         if self.is_distributed:
             model = DDP(model, device_ids=[self.local_rank], broadcast_buffers=False)
-
-        if self.use_model_ema:
-            self.ema_model = ModelEMA(model, self.exp.ema_decay)
-            self.ema_model.updates = self.max_iter * self.start_epoch
 
         self.model = model
         self.model.train()
@@ -297,29 +297,9 @@ class Trainer:
             )
 
             log_msg = "{}, mem: {:.0f}Mb, {}, {}, lr: {:.6f}".format(progress_str, gpu_mem_usage(), time_str, loss_str, self.meter["lr"].latest, )
-            if self.archi_name == 'YOLOX':
-                log_msg += (", size: {:d}, {}".format(self.input_size[0], eta_str))
-            elif self.archi_name == 'PPYOLO':
-                log_msg += (", {}".format(eta_str))
-            elif self.archi_name == 'FCOS':
-                log_msg += (", {}".format(eta_str))
-            else:
-                raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
+            log_msg += (", {}".format(eta_str))
             logger.info(log_msg)
             self.meter.clear_meters()
-
-        if self.archi_name == 'YOLOX':
-            # random resizing
-            if (self.progress_in_iter + 1) % 10 == 0:
-                self.input_size = self.exp.random_resize(
-                    self.train_loader, self.epoch, self.rank, self.is_distributed
-                )
-        elif self.archi_name == 'PPYOLO':
-            pass
-        elif self.archi_name == 'FCOS':
-            pass
-        else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
     @property
     def progress_in_iter(self):
@@ -356,12 +336,9 @@ class Trainer:
         return model
 
     def evaluate_and_save_model(self):
-        if self.use_model_ema:
-            evalmodel = self.ema_model.ema
-        else:
-            evalmodel = self.model
-            if is_parallel(evalmodel):
-                evalmodel = evalmodel.module
+        evalmodel = self.model
+        if is_parallel(evalmodel):
+            evalmodel = evalmodel.module
 
         ap50_95, ap50, summary = self.exp.eval(
             evalmodel, self.evaluator, self.is_distributed
@@ -378,7 +355,7 @@ class Trainer:
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False):
         if self.rank == 0:
-            save_model = self.ema_model.ema if self.use_model_ema else self.model
+            save_model = self.model
             logger.info("Save weights to {}".format(self.file_name))
             ckpt_state = {
                 "start_epoch": self.epoch + 1,
