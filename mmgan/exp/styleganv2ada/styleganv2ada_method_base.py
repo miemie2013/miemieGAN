@@ -36,13 +36,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.scheduler = "warm_piecewisedecay"
-        self.warmup_epochs = -1
         self.basic_lr_per_img = 0.0025 / 64.0
         # self.basic_lr_per_img = 0.0025 / 2.0
-        self.start_factor = 0.0
-        self.decay_gamma = 0.1
-        self.milestones_epoch = [99999998, 99999999]
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -225,43 +220,31 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         import itertools
         if name == 'G':
             if "optimizer_G" not in self.__dict__:
-                if self.warmup_epochs > 0:
-                    lr = lr * self.start_factor
-
                 optimizer = torch.optim.Adam(
                     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=lr,
                     betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
                     eps=self.optimizer_cfg['generator']['epsilon']
                 )
+                # optimizer = torch.optim.SGD(
+                #     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.00001, momentum=0.9
+                # )
                 self.optimizer_G = optimizer
             return self.optimizer_G
         elif name == 'D':
             if "optimizer_D" not in self.__dict__:
-                if self.warmup_epochs > 0:
-                    lr = lr * self.start_factor
-
                 optimizer = torch.optim.Adam(
                     self.model.discriminator.parameters(), lr=lr,
                     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
                     eps=self.optimizer_cfg['discriminator']['epsilon']
                 )
+                # optimizer = torch.optim.SGD(
+                #     self.model.discriminator.parameters(), lr=0.00002, momentum=0.9
+                # )
                 self.optimizer_D = optimizer
             return self.optimizer_D
 
     def get_lr_scheduler(self, lr, iters_per_epoch):
-        from mmgan.utils import LRScheduler
-
-        scheduler = LRScheduler(
-            self.scheduler,
-            lr,
-            iters_per_epoch,
-            self.max_epoch,
-            warmup_epochs=self.warmup_epochs,
-            warmup_lr_start=lr * self.start_factor,
-            milestones=self.milestones_epoch,
-            gamma=self.decay_gamma,
-        )
-        return scheduler
+        pass
 
     def get_eval_loader(self, batch_size, is_distributed):
         from mmgan.data import StyleGANv2ADATestDataset

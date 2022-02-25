@@ -21,9 +21,20 @@ pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[
 改为
 pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 
-7.如果显存不足，借用一下11G的卡
+7.优化器要换成SGD：
+                optimizer = torch.optim.SGD(
+                    itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.00001, momentum=0.9
+                )
+                ...
+                optimizer = torch.optim.SGD(
+                    self.model.discriminator.parameters(), lr=0.00002, momentum=0.9
+                )
+因为Adam更新参数有一定随机性，同样的情况下，跑2次结果不同！！！（但是SGD也有轻微的不同，影响不大。）
 
-8.原版仓库先设置不让优化器更新参数，即注释掉phase.opt.step()，先对齐前20个step的输出；
+
+8.如果显存不足，借用一下11G的卡
+
+9.原版仓库先设置不让优化器更新参数，即注释掉phase.opt.step()，先对齐前20个step的输出；
 输出完全对齐后phase.opt.step()解除注释，再继续对齐。
 
 

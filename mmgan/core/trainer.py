@@ -107,29 +107,21 @@ class Trainer:
             self.model.setup_input(data)
             outputs = self.model.train_iter(self.optimizers)
 
-            # 修改学习率
-            lr_G = self.lr_scheduler_G.update_lr(self.progress_in_iter + 1)
-            lr_D = self.lr_scheduler_D.update_lr(self.progress_in_iter + 1)
-            for param_group in self.optimizer_G.param_groups:
-                param_group["lr"] = lr_G
-            for param_group in self.optimizer_D.param_groups:
-                param_group["lr"] = lr_D
+            iter_end_time = time.time()
+            # 删去所有loss的键值对，避免打印loss时出现None错误。
+            if (self.iter + 1) % self.exp.print_interval == 0:
+                loss_meter = self.meter.get_filtered_meter("loss")
+                for key in loss_meter.keys():
+                    del self.meter[key]
+            self.meter.update(
+                iter_time=iter_end_time - iter_start_time,
+                data_time=data_end_time - iter_start_time,
+                lr=self.base_lr_G,
+                **outputs,
+            )
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
-
-        iter_end_time = time.time()
-        # 删去所有loss的键值对，避免打印loss时出现None错误。
-        if (self.iter + 1) % self.exp.print_interval == 0:
-            loss_meter = self.meter.get_filtered_meter("loss")
-            for key in loss_meter.keys():
-                del self.meter[key]
-        self.meter.update(
-            iter_time=iter_end_time - iter_start_time,
-            data_time=data_end_time - iter_start_time,
-            lr=lr_G,
-            **outputs,
-        )
 
     def before_train(self):
         logger.info("args: {}".format(self.args))
@@ -219,12 +211,6 @@ class Trainer:
 
             # max_iter means iters per epoch
             self.max_iter = len(self.train_loader)
-            self.lr_scheduler_G = self.exp.get_lr_scheduler(
-                self.base_lr_G, self.max_iter
-            )
-            self.lr_scheduler_D = self.exp.get_lr_scheduler(
-                self.base_lr_D, self.max_iter
-            )
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
