@@ -6,6 +6,8 @@ import torch.nn.functional as F
 import numpy as np
 import sys
 
+from mmgan.models.generators.generator_styleganv2ada import constant
+
 
 def soft_update(source, target, beta=1.0):
     assert 0.0 <= beta <= 1.0
@@ -31,6 +33,11 @@ class StyleGANv2ADAModel(torch.nn.Module):
         pl_weight=2.0,
         ema_kimg=10,
         ema_rampup=None,
+        augment_p=0.0,
+        ada_kimg=500,
+        ada_interval=4,
+        ada_target=None,
+        adjust_p=False,
     ):
         super(StyleGANv2ADAModel, self).__init__()
         self.optimizers = OrderedDict()
@@ -75,6 +82,13 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.pl_mean = None
         self.ema_kimg = ema_kimg
         self.ema_rampup = ema_rampup
+
+        self.augment_p = augment_p
+        self.ada_kimg = ada_kimg
+        self.ada_target = ada_target
+        self.ada_interval = ada_interval
+        self.adjust_p = adjust_p
+        self.Loss_signs_real = []
 
 
 
@@ -214,6 +228,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
             real_img_tmp = real_img.detach().requires_grad_(do_Dr1)
             real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
+            if self.adjust_p and self.augment_pipe is not None:
+                self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
             # ddd = np.mean((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
 
@@ -371,6 +387,19 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
         self.cur_nimg += batch_size
         self.batch_idx += 1
+
+        # Execute ADA heuristic.
+        if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
+            # self.ada_interval个迭代中，real_logits.sign()的平均值。
+            Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
+            diff = Loss_signs_real_mean - self.ada_target
+            adjust = np.sign(diff)
+            # print(Loss_signs_real_mean)
+            # print('==========================')
+            adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
+            self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=self.augment_pipe.p.device)))
+            self.Loss_signs_real = []
+
         return loss_numpys
 
     def test_iter(self, metrics=None):

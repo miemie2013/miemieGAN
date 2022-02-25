@@ -121,6 +121,10 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             pl_batch_shrink=2,  # default is 2. when train batch_size is 1, set to 1.
             ema_kimg=20,
             ema_rampup=None,
+            augment_p=0.0,
+            ada_kimg=100,
+            ada_interval=4,
+            ada_target=0.6,
         )
 
         # ---------------- dataset config ---------------- #
@@ -148,9 +152,15 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
             discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
-            augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe)
+            augment_pipe = None
+            adjust_p = False  # 是否调整augment_pipe的p
+            if hasattr(self, 'augment_pipe') and (self.model_cfg['augment_p'] > 0 or self.model_cfg['ada_target'] is not None):
+                augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe).train().requires_grad_(False)
+                augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
+                if self.model_cfg['ada_target'] is not None:
+                    adjust_p = True
             self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
-                                            discriminator=discriminator, augment_pipe=augment_pipe, **self.model_cfg)
+                                            discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 
     def get_data_loader(
