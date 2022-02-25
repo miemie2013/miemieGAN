@@ -65,6 +65,22 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 
 
 
 
+看显存占用、GPU利用率
+watch -n 0.1 nvidia-smi
+
+
+conda create -n pasta python=3.9
+
+conda activate pasta
+
+export CUDA_VISIBLE_DEVICES=0
+
+export CUDA_VISIBLE_DEVICES=1
+
+export CUDA_VISIBLE_DEVICES=4
+
+
+
 
 ----------------------- 恢复训练（加上参数--resume） -----------------------
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 2 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_afhqcat/7.pth --resume
