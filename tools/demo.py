@@ -18,7 +18,7 @@ sys.path.insert(0, parent_path)
 
 from mmgan.data.data_augment import *
 from mmgan.exp import get_exp
-from mmgan.utils import fuse_model, get_model_info, postprocess, vis, get_classes, vis2
+from mmgan.utils import fuse_model, get_model_info, postprocess, vis, get_classes, vis2, load_ckpt
 
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
@@ -114,7 +114,7 @@ def main(exp, args):
             ckpt_file = args.ckpt
         logger.info("loading checkpoint")
         ckpt = torch.load(ckpt_file, map_location="cpu")
-        model.load_state_dict(ckpt["model"])
+        model = load_ckpt(model, ckpt["model"])
         logger.info("loaded checkpoint done.")
 
         seeds = args.seeds
