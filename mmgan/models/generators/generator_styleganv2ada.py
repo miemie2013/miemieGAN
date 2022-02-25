@@ -930,6 +930,47 @@ def scale2d_inv(sx, sy, **kwargs):
 def rotate2d_inv(theta, **kwargs):
     return rotate2d(-theta, **kwargs)
 
+def grid_sample(input, grid):
+    return _GridSample2dForward.apply(input, grid)
+
+class _GridSample2dForward(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, grid):
+        assert input.ndim == 4
+        assert grid.ndim == 4
+        output = torch.nn.functional.grid_sample(input=input, grid=grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+        ctx.save_for_backward(input, grid)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, grid = ctx.saved_tensors
+        grad_input, grad_grid = _GridSample2dBackward.apply(grad_output, input, grid)
+        return grad_input, grad_grid
+
+class _GridSample2dBackward(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, grad_output, input, grid):
+        op = torch._C._jit_get_operation('aten::grid_sampler_2d_backward')
+        grad_input, grad_grid = op(grad_output, input, grid, 0, 0, False)
+        ctx.save_for_backward(grid)
+        return grad_input, grad_grid
+
+    @staticmethod
+    def backward(ctx, grad2_grad_input, grad2_grad_grid):
+        _ = grad2_grad_grid # unused
+        grid, = ctx.saved_tensors
+        grad2_grad_output = None
+        grad2_input = None
+        grad2_grid = None
+
+        if ctx.needs_input_grad[0]:
+            grad2_grad_output = _GridSample2dForward.apply(grad2_grad_input, grid)
+
+        assert not ctx.needs_input_grad[2]
+        return grad2_grad_output, grad2_input, grad2_grid
+
+
 #----------------------------------------------------------------------------
 # Versatile image augmentation pipeline from the paper
 # "Training Generative Adversarial Networks with Limited Data".
@@ -1119,7 +1160,8 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
             shape = [batch_size, num_channels, (height + Hz_pad * 2) * 2, (width + Hz_pad * 2) * 2]
             G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2], device=device) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2], device=device)
             grid = torch.nn.functional.affine_grid(theta=G_inv[:,:2,:], size=shape, align_corners=False)
-            images = torch.nn.functional.grid_sample(input=images, grid=grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+            # pytorch默认的F.grid_sample()同样没有实现二阶梯度，这里作者写了一个二阶梯度。
+            images = grid_sample(images, grid)
 
             # Downsample and crop.
             images = downsample2d(x=images, f=self.Hz_geom, down=2, padding=-Hz_pad*2, flip_filter=True)
