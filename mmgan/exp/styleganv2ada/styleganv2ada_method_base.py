@@ -99,6 +99,21 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping_kwargs={},
             epilogue_kwargs=dict(mbstd_group_size=8,),
         )
+        self.augment_pipe_type = 'StyleGANv2ADA_AugmentPipe'
+        self.augment_pipe = dict(
+            xflip=1,
+            rotate90=1,
+            xint=1,
+            scale=1,
+            rotate=1,
+            aniso=1,
+            xfrac=1,
+            brightness=1,
+            contrast=1,
+            lumaflip=1,
+            hue=1,
+            saturation=1,
+        )
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
@@ -125,7 +140,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.data_num_workers = 2
 
     def get_model(self):
-        from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator
+        from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv2ADAModel
         if getattr(self, "model", None) is None:
             synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
@@ -133,7 +148,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
             discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
-            augment_pipe = None
+            augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe)
             self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
                                             discriminator=discriminator, augment_pipe=augment_pipe, **self.model_cfg)
         return self.model

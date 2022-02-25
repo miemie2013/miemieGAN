@@ -842,35 +842,36 @@ wavelets = {
 
 _constant_cache = dict()
 
-
-def constant(value, shape=None, dtype=None):
+def constant(value, shape=None, dtype=None, device=None, memory_format=None):
     value = np.asarray(value)
     if shape is not None:
         shape = tuple(shape)
     if dtype is None:
-        dtype = paddle.get_default_dtype()
+        dtype = torch.get_default_dtype()
+    if device is None:
+        device = torch.device('cpu')
+    if memory_format is None:
+        memory_format = torch.contiguous_format
 
-    key = (value.shape, value.dtype, value.tobytes(), shape, dtype)
+    key = (value.shape, value.dtype, value.tobytes(), shape, dtype, device, memory_format)
     tensor = _constant_cache.get(key, None)
     if tensor is None:
-        # tensor = paddle.to_tensor(value.copy(), dtype=dtype)
-        if isinstance(value, np.ndarray) and shape is None:
-            tensor = paddle.to_tensor(value, dtype=dtype)
-        else:
-            tensor = paddle.ones(shape, dtype=dtype) * value
+        tensor = torch.as_tensor(value.copy(), dtype=dtype, device=device)
+        if shape is not None:
+            tensor, _ = torch.broadcast_tensors(tensor, torch.empty(shape))
+        tensor = tensor.contiguous(memory_format=memory_format)
         _constant_cache[key] = tensor
     return tensor
 
-def matrix(*rows):
+def matrix(*rows, device=None):
     assert all(len(row) == len(rows[0]) for row in rows)
     elems = [x for row in rows for x in row]
-    ref = [x for x in elems if isinstance(x, paddle.Tensor)]
+    ref = [x for x in elems if isinstance(x, torch.Tensor)]
     if len(ref) == 0:
-        return constant(np.asarray(rows))
-    elems = [x if isinstance(x, paddle.Tensor) else constant(x, shape=ref[0].shape) for x in elems]
-    bbbbbbb = paddle.stack(elems, axis=-1)
-    bbbbbbbb = bbbbbbb.reshape((tuple(ref[0].shape) + (len(rows), -1)))
-    return bbbbbbbb
+        return constant(np.asarray(rows), device=device)
+    assert device is None or device == ref[0].device
+    elems = [x if isinstance(x, torch.Tensor) else constant(x, shape=ref[0].shape, device=ref[0].device) for x in elems]
+    return torch.stack(elems, dim=-1).reshape(ref[0].shape + (len(rows), -1))
 
 def translate2d(tx, ty, **kwargs):
     return matrix(
@@ -904,17 +905,14 @@ def scale3d(sx, sy, sz, **kwargs):
 
 def rotate2d(theta, **kwargs):
     return matrix(
-        [paddle.cos(theta), paddle.sin(-theta), 0],
-        [paddle.sin(theta), paddle.cos(theta),  0],
+        [torch.cos(theta), torch.sin(-theta), 0],
+        [torch.sin(theta), torch.cos(theta),  0],
         [0,                0,                 1],
         **kwargs)
 
 def rotate3d(v, theta, **kwargs):
-    if v.ndim == 1:
-        vx = v[0]; vy = v[1]; vz = v[2]
-    else:
-        vx = v[..., 0]; vy = v[..., 1]; vz = v[..., 2]
-    s = paddle.sin(theta); c = paddle.cos(theta); cc = 1 - c
+    vx = v[..., 0]; vy = v[..., 1]; vz = v[..., 2]
+    s = torch.sin(theta); c = torch.cos(theta); cc = 1 - c
     return matrix(
         [vx*vx*cc+c,    vx*vy*cc-vz*s, vx*vz*cc+vy*s, 0],
         [vy*vx*cc+vz*s, vy*vy*cc+c,    vy*vz*cc-vx*s, 0],
@@ -948,7 +946,7 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
         noise=0, cutout=0, noise_std=0.1, cutout_size=0.5,
     ):
         super().__init__()
-        self.register_buffer('p', paddle.ones([1, ], dtype='float32'))       # Overall multiplier for augmentation probability.
+        self.register_buffer('p', torch.ones([]))       # Overall multiplier for augmentation probability.
 
         # Pixel blitting.
         self.xflip            = float(xflip)            # Probability multiplier for x-flip.
@@ -1001,45 +999,46 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
             Hz_fbank = np.dstack([Hz_fbank, np.zeros_like(Hz_fbank)]).reshape(Hz_fbank.shape[0], -1)[:, :-1]
             Hz_fbank = scipy.signal.convolve(Hz_fbank, [Hz_lo2])
             Hz_fbank[i, (Hz_fbank.shape[1] - Hz_hi2.size) // 2 : (Hz_fbank.shape[1] + Hz_hi2.size) // 2] += Hz_hi2
-        self.register_buffer('Hz_fbank', paddle.to_tensor(Hz_fbank, dtype=paddle.float32))
+        self.register_buffer('Hz_fbank', torch.as_tensor(Hz_fbank, dtype=torch.float32))
 
     def forward(self, images, debug_percentile=None):
-        assert images.ndim == 4
+        assert isinstance(images, torch.Tensor) and images.ndim == 4
         batch_size, num_channels, height, width = images.shape
+        device = images.device
         if debug_percentile is not None:
-            debug_percentile = paddle.to_tensor(debug_percentile, paddle=paddle.float32)
+            debug_percentile = torch.as_tensor(debug_percentile, dtype=torch.float32, device=device)
 
         # -------------------------------------
         # Select parameters for pixel blitting.
         # -------------------------------------
 
         # Initialize inverse homogeneous 2D transform: G_inv @ pixel_out ==> pixel_in
-        I_3 = paddle.eye(3)
+        I_3 = torch.eye(3, device=device)
         G_inv = I_3
 
         # Apply x-flip with probability (xflip * strength).
         if self.xflip > 0:
-            i = paddle.floor(paddle.rand([batch_size], dtype=paddle.float32) * 2)
-            i = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.xflip * self.p, i, paddle.zeros_like(i))
+            i = torch.floor(torch.rand([batch_size], device=device) * 2)
+            i = torch.where(torch.rand([batch_size], device=device) < self.xflip * self.p, i, torch.zeros_like(i))
             if debug_percentile is not None:
-                i = paddle.full_like(i, paddle.floor(debug_percentile * 2))
+                i = torch.full_like(i, torch.floor(debug_percentile * 2))
             G_inv = G_inv @ scale2d_inv(1 - 2 * i, 1)
 
         # Apply 90 degree rotations with probability (rotate90 * strength).
         if self.rotate90 > 0:
-            i = paddle.floor(paddle.rand([batch_size], dtype=paddle.float32) * 4)
-            i = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.rotate90 * self.p, i, paddle.zeros_like(i))
+            i = torch.floor(torch.rand([batch_size], device=device) * 4)
+            i = torch.where(torch.rand([batch_size], device=device) < self.rotate90 * self.p, i, torch.zeros_like(i))
             if debug_percentile is not None:
-                i = paddle.full_like(i, paddle.floor(debug_percentile * 4))
+                i = torch.full_like(i, torch.floor(debug_percentile * 4))
             G_inv = G_inv @ rotate2d_inv(-np.pi / 2 * i)
 
         # Apply integer translation with probability (xint * strength).
         if self.xint > 0:
-            t = (paddle.rand([batch_size, 2], dtype=paddle.float32) * 2 - 1) * self.xint_max
-            t = paddle.where(paddle.rand([batch_size, 1], dtype=paddle.float32) < self.xint * self.p, t, paddle.zeros_like(t))
+            t = (torch.rand([batch_size, 2], device=device) * 2 - 1) * self.xint_max
+            t = torch.where(torch.rand([batch_size, 1], device=device) < self.xint * self.p, t, torch.zeros_like(t))
             if debug_percentile is not None:
-                t = paddle.full_like(t, (debug_percentile * 2 - 1) * self.xint_max)
-            G_inv = G_inv @ translate2d_inv(paddle.round(t[:,0] * width), paddle.round(t[:,1] * height))
+                t = torch.full_like(t, (debug_percentile * 2 - 1) * self.xint_max)
+            G_inv = G_inv @ translate2d_inv(torch.round(t[:,0] * width), torch.round(t[:,1] * height))
 
         # --------------------------------------------------------
         # Select parameters for general geometric transformations.
@@ -1047,47 +1046,41 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
 
         # Apply isotropic scaling with probability (scale * strength).
         if self.scale > 0:
-            zhishu = paddle.randn([batch_size], dtype=paddle.float32) * self.scale_std
-            s = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-            s = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.scale * self.p, s, paddle.ones_like(s))
+            s = torch.exp2(torch.randn([batch_size], device=device) * self.scale_std)
+            s = torch.where(torch.rand([batch_size], device=device) < self.scale * self.p, s, torch.ones_like(s))
             if debug_percentile is not None:
-                zhishu = torch.erfinv(debug_percentile * 2 - 1) * self.scale_std
-                temp = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-                s = paddle.full_like(s, temp)
+                s = torch.full_like(s, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.scale_std))
             G_inv = G_inv @ scale2d_inv(s, s)
 
         # Apply pre-rotation with probability p_rot.
-        p_rot = (1 - self.rotate * self.p)
-        p_rot = paddle.clip(p_rot, 0, 1)
-        p_rot = 1 - paddle.sqrt(p_rot) # P(pre OR post) = p
+        p_rot = 1 - torch.sqrt((1 - self.rotate * self.p).clamp(0, 1)) # P(pre OR post) = p
         if self.rotate > 0:
-            theta = (paddle.rand([batch_size], dtype=paddle.float32) * 2 - 1) * np.pi * self.rotate_max
-            theta = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < p_rot, theta, paddle.zeros_like(theta))
+            theta = (torch.rand([batch_size], device=device) * 2 - 1) * np.pi * self.rotate_max
+            theta = torch.where(torch.rand([batch_size], device=device) < p_rot, theta, torch.zeros_like(theta))
             if debug_percentile is not None:
-                theta = paddle.full_like(theta, (debug_percentile * 2 - 1) * np.pi * self.rotate_max)
+                theta = torch.full_like(theta, (debug_percentile * 2 - 1) * np.pi * self.rotate_max)
             G_inv = G_inv @ rotate2d_inv(-theta) # Before anisotropic scaling.
 
         # Apply anisotropic scaling with probability (aniso * strength).
         if self.aniso > 0:
-            zhishu = paddle.randn([batch_size], dtype=paddle.float32) * self.aniso_std
-            s = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-            s = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.aniso * self.p, s, paddle.ones_like(s))
+            s = torch.exp2(torch.randn([batch_size], device=device) * self.aniso_std)
+            s = torch.where(torch.rand([batch_size], device=device) < self.aniso * self.p, s, torch.ones_like(s))
             if debug_percentile is not None:
                 s = torch.full_like(s, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.aniso_std))
             G_inv = G_inv @ scale2d_inv(s, 1 / s)
 
         # Apply post-rotation with probability p_rot.
         if self.rotate > 0:
-            theta = (paddle.rand([batch_size], dtype=paddle.float32) * 2 - 1) * np.pi * self.rotate_max
-            theta = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < p_rot, theta, paddle.zeros_like(theta))
+            theta = (torch.rand([batch_size], device=device) * 2 - 1) * np.pi * self.rotate_max
+            theta = torch.where(torch.rand([batch_size], device=device) < p_rot, theta, torch.zeros_like(theta))
             if debug_percentile is not None:
-                theta = paddle.zeros_like(theta)
+                theta = torch.zeros_like(theta)
             G_inv = G_inv @ rotate2d_inv(-theta) # After anisotropic scaling.
 
         # Apply fractional translation with probability (xfrac * strength).
         if self.xfrac > 0:
-            t = paddle.randn([batch_size, 2], dtype=paddle.float32) * self.xfrac_std
-            t = paddle.where(paddle.rand([batch_size, 1], dtype=paddle.float32) < self.xfrac * self.p, t, paddle.zeros_like(t))
+            t = torch.randn([batch_size, 2], device=device) * self.xfrac_std
+            t = torch.where(torch.rand([batch_size, 1], device=device) < self.xfrac * self.p, t, torch.zeros_like(t))
             if debug_percentile is not None:
                 t = torch.full_like(t, torch.erfinv(debug_percentile * 2 - 1) * self.xfrac_std)
             G_inv = G_inv @ translate2d_inv(t[:,0] * width, t[:,1] * height)
@@ -1102,44 +1095,30 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
             # Calculate padding.
             cx = (width - 1) / 2
             cy = (height - 1) / 2
-            cp = matrix([-cx, -cy, 1], [cx, -cy, 1], [cx, cy, 1], [-cx, cy, 1]) # [idx, xyz]
+            cp = matrix([-cx, -cy, 1], [cx, -cy, 1], [cx, cy, 1], [-cx, cy, 1], device=device) # [idx, xyz]
             cp = G_inv @ cp.t() # [batch, xyz, idx]
             Hz_pad = self.Hz_geom.shape[0] // 4
-            # margin = cp[:, :2, :].permute(1, 0, 2).flatten(1) # [xy, batch * idx]
-            margin = cp[:, :2, :]
-            margin = paddle.transpose(margin, perm=[1, 0, 2])
-            margin = paddle.flatten(margin, 1)
-            margin = paddle.concat([-margin, margin])
-            margin = margin.max(1) # [x0, y0, x1, y1]
-            margin = margin + constant([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2)
-            margin = paddle.maximum(margin, constant([0, 0] * 2))
-            margin = paddle.minimum(margin, constant([width-1, height-1] * 2))
-            margin = margin.ceil()  # 向上取整
-            margin = paddle.cast(margin, dtype=paddle.int32)
-            mx0, my0, mx1, my1 = margin
+            margin = cp[:, :2, :].permute(1, 0, 2).flatten(1) # [xy, batch * idx]
+            margin = torch.cat([-margin, margin]).max(dim=1).values # [x0, y0, x1, y1]
+            margin = margin + constant([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2, device=device)
+            margin = margin.max(constant([0, 0] * 2, device=device))
+            margin = margin.min(constant([width-1, height-1] * 2, device=device))
+            mx0, my0, mx1, my1 = margin.ceil().to(torch.int32)
 
             # Pad image and adjust origin.
-            images = paddle.nn.functional.pad(images, pad=[mx0, mx1, my0, my1], mode='reflect')
+            images = torch.nn.functional.pad(input=images, pad=[mx0,mx1,my0,my1], mode='reflect')
             G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
 
             # Upsample.
-            images = upsample2d(x=images, f=self.Hz_geom, up=2)
-            G_inv = scale2d(2, 2) @ G_inv @ scale2d_inv(2, 2)
-            G_inv = translate2d(-0.5, -0.5) @ G_inv @ translate2d_inv(-0.5, -0.5)
+            images = upfirdn2d.upsample2d(x=images, f=self.Hz_geom, up=2)
+            G_inv = scale2d(2, 2, device=device) @ G_inv @ scale2d_inv(2, 2, device=device)
+            G_inv = translate2d(-0.5, -0.5, device=device) @ G_inv @ translate2d_inv(-0.5, -0.5, device=device)
 
             # Execute transformation.
             shape = [batch_size, num_channels, (height + Hz_pad * 2) * 2, (width + Hz_pad * 2) * 2]
-            G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2]) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2])
-
-            # dic = {}
-            # dic['G_inv'] = G_inv.numpy()
-            # dic['images'] = images.numpy()
-            # dic['shape'] = np.array(shape)
-            # np.savez('affine_grid_data', **dic)
-
-            grid = paddle.nn.functional.affine_grid(theta=G_inv[:, :2, :], out_shape=shape, align_corners=False)
-            # grid_sample没有实现二阶梯度，需要用另外的等价实现。
-            images = paddle.nn.functional.grid_sample(images, grid=grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+            G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2], device=device) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2], device=device)
+            grid = torch.nn.functional.affine_grid(theta=G_inv[:,:2,:], size=shape, align_corners=False)
+            images = torch.nn.functional.grid_sample(input=images, grid=grid, mode='bilinear', padding_mode='zeros', align_corners=False)
 
             # Downsample and crop.
             images = downsample2d(x=images, f=self.Hz_geom, down=2, padding=-Hz_pad*2, flip_filter=True)
@@ -1149,53 +1128,49 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
         # --------------------------------------------
 
         # Initialize homogeneous 3D transformation matrix: C @ color_in ==> color_out
-        I_4 = paddle.eye(4)
+        I_4 = torch.eye(4, device=device)
         C = I_4
 
         # Apply brightness with probability (brightness * strength).
         if self.brightness > 0:
-            b = paddle.randn([batch_size], dtype=paddle.float32) * self.brightness_std
-            b = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.brightness * self.p, b, paddle.zeros_like(b))
+            b = torch.randn([batch_size], device=device) * self.brightness_std
+            b = torch.where(torch.rand([batch_size], device=device) < self.brightness * self.p, b, torch.zeros_like(b))
             if debug_percentile is not None:
-                b = paddle.full_like(b, paddle.erfinv(debug_percentile * 2 - 1) * self.brightness_std)
+                b = torch.full_like(b, torch.erfinv(debug_percentile * 2 - 1) * self.brightness_std)
             C = translate3d(b, b, b) @ C
 
         # Apply contrast with probability (contrast * strength).
         if self.contrast > 0:
-            zhishu = paddle.randn([batch_size], dtype=paddle.float32) * self.contrast_std
-            c = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-            c = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.contrast * self.p, c, paddle.ones_like(c))
+            c = torch.exp2(torch.randn([batch_size], device=device) * self.contrast_std)
+            c = torch.where(torch.rand([batch_size], device=device) < self.contrast * self.p, c, torch.ones_like(c))
             if debug_percentile is not None:
                 c = torch.full_like(c, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.contrast_std))
             C = scale3d(c, c, c) @ C
 
         # Apply luma flip with probability (lumaflip * strength).
-        v = constant(np.asarray([1, 1, 1, 0]) / np.sqrt(3)) # Luma axis.
+        v = constant(np.asarray([1, 1, 1, 0]) / np.sqrt(3), device=device) # Luma axis.
         if self.lumaflip > 0:
-            i = paddle.floor(paddle.rand([batch_size, 1, 1], dtype=paddle.float32) * 2)
-            i = paddle.where(paddle.rand([batch_size, 1, 1], dtype=paddle.float32) < self.lumaflip * self.p, i, paddle.zeros_like(i))
+            i = torch.floor(torch.rand([batch_size, 1, 1], device=device) * 2)
+            i = torch.where(torch.rand([batch_size, 1, 1], device=device) < self.lumaflip * self.p, i, torch.zeros_like(i))
             if debug_percentile is not None:
-                i = paddle.full_like(i, paddle.floor(debug_percentile * 2))
-            v2 = paddle.unsqueeze(v, 1)  # [n, 1]
-            C = (I_4 - 2 * paddle.matmul(v2, v2.transpose((1, 0))) * i) @ C # Householder reflection.
+                i = torch.full_like(i, torch.floor(debug_percentile * 2))
+            C = (I_4 - 2 * v.ger(v) * i) @ C # Householder reflection.
 
         # Apply hue rotation with probability (hue * strength).
         if self.hue > 0 and num_channels > 1:
-            theta = (paddle.rand([batch_size], dtype=paddle.float32) * 2 - 1) * np.pi * self.hue_max
-            theta = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.hue * self.p, theta, paddle.zeros_like(theta))
+            theta = (torch.rand([batch_size], device=device) * 2 - 1) * np.pi * self.hue_max
+            theta = torch.where(torch.rand([batch_size], device=device) < self.hue * self.p, theta, torch.zeros_like(theta))
             if debug_percentile is not None:
-                theta = paddle.full_like(theta, (debug_percentile * 2 - 1) * np.pi * self.hue_max)
+                theta = torch.full_like(theta, (debug_percentile * 2 - 1) * np.pi * self.hue_max)
             C = rotate3d(v, theta) @ C # Rotate around v.
 
         # Apply saturation with probability (saturation * strength).
         if self.saturation > 0 and num_channels > 1:
-            zhishu = paddle.randn([batch_size, 1, 1], dtype=paddle.float32) * self.saturation_std
-            s = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-            s = paddle.where(paddle.rand([batch_size, 1, 1], dtype=paddle.float32) < self.saturation * self.p, s, paddle.ones_like(s))
+            s = torch.exp2(torch.randn([batch_size, 1, 1], device=device) * self.saturation_std)
+            s = torch.where(torch.rand([batch_size, 1, 1], device=device) < self.saturation * self.p, s, torch.ones_like(s))
             if debug_percentile is not None:
                 s = torch.full_like(s, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.saturation_std))
-            v2 = paddle.unsqueeze(v, 1)  # [n, 1]
-            C = (paddle.matmul(v2, v2.transpose((1, 0))) + (I_4 - paddle.matmul(v2, v2.transpose((1, 0)))) * s) @ C
+            C = (v.ger(v) + (I_4 - v.ger(v)) * s) @ C
 
         # ------------------------------
         # Execute color transformations.
@@ -1220,17 +1195,16 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
         if self.imgfilter > 0:
             num_bands = self.Hz_fbank.shape[0]
             assert len(self.imgfilter_bands) == num_bands
-            expected_power = constant(np.array([10, 1, 1, 1]) / 13) # Expected power spectrum (1/f).
+            expected_power = constant(np.array([10, 1, 1, 1]) / 13, device=device) # Expected power spectrum (1/f).
 
             # Apply amplification for each band with probability (imgfilter * strength * band_strength).
-            g = paddle.ones([batch_size, num_bands], dtype=paddle.float32) # Global gain vector (identity).
+            g = torch.ones([batch_size, num_bands], device=device) # Global gain vector (identity).
             for i, band_strength in enumerate(self.imgfilter_bands):
-                zhishu = paddle.randn([batch_size], dtype=paddle.float32) * self.imgfilter_std
-                t_i = paddle.pow(paddle.zeros_like(zhishu, dtype=zhishu.dtype) + 2.0, zhishu)
-                t_i = paddle.where(paddle.rand([batch_size], dtype=paddle.float32) < self.imgfilter * self.p * band_strength, t_i, paddle.ones_like(t_i))
+                t_i = torch.exp2(torch.randn([batch_size], device=device) * self.imgfilter_std)
+                t_i = torch.where(torch.rand([batch_size], device=device) < self.imgfilter * self.p * band_strength, t_i, torch.ones_like(t_i))
                 if debug_percentile is not None:
-                    t_i = torch.full_like(t_i, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.imgfilter_std)) if band_strength > 0 else paddle.ones_like(t_i)
-                t = paddle.ones([batch_size, num_bands], dtype=paddle.float32)          # Temporary gain vector.
+                    t_i = torch.full_like(t_i, torch.exp2(torch.erfinv(debug_percentile * 2 - 1) * self.imgfilter_std)) if band_strength > 0 else torch.ones_like(t_i)
+                t = torch.ones([batch_size, num_bands], device=device)                  # Temporary gain vector.
                 t[:, i] = t_i                                                           # Replace i'th element.
                 t = t / (expected_power * t.square()).sum(dim=-1, keepdims=True).sqrt() # Normalize power.
                 g = g * t                                                               # Accumulate into global gain.
@@ -1243,9 +1217,9 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
             # Apply filter.
             p = self.Hz_fbank.shape[1] // 2
             images = images.reshape([1, batch_size * num_channels, height, width])
-            images = paddle.nn.functional.pad(images, pad=[p, p, p, p], mode='reflect')
-            images = conv2d_gradfix.conv2d(input=images, weight=Hz_prime.unsqueeze(2), groups=batch_size*num_channels)
-            images = conv2d_gradfix.conv2d(input=images, weight=Hz_prime.unsqueeze(3), groups=batch_size*num_channels)
+            images = torch.nn.functional.pad(input=images, pad=[p,p,p,p], mode='reflect')
+            images = F.conv2d(input=images, weight=Hz_prime.unsqueeze(2), bias=None, stride=1, padding=0, dilation=1, groups=batch_size*num_channels)
+            images = F.conv2d(input=images, weight=Hz_prime.unsqueeze(3), bias=None, stride=1, padding=0, dilation=1, groups=batch_size*num_channels)
             images = images.reshape([batch_size, num_channels, height, width])
 
         # ------------------------
@@ -1254,30 +1228,30 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
 
         # Apply additive RGB noise with probability (noise * strength).
         if self.noise > 0:
-            sigma = paddle.randn([batch_size, 1, 1, 1], dtype=paddle.float32).abs() * self.noise_std
-            sigma = paddle.where(paddle.rand([batch_size, 1, 1, 1], dtype=paddle.float32) < self.noise * self.p, sigma, paddle.zeros_like(sigma))
+            sigma = torch.randn([batch_size, 1, 1, 1], device=device).abs() * self.noise_std
+            sigma = torch.where(torch.rand([batch_size, 1, 1, 1], device=device) < self.noise * self.p, sigma, torch.zeros_like(sigma))
             if debug_percentile is not None:
-                sigma = paddle.full_like(sigma, paddle.erfinv(debug_percentile) * self.noise_std)
-            images = images + paddle.randn([batch_size, num_channels, height, width], dtype=paddle.float32) * sigma
+                sigma = torch.full_like(sigma, torch.erfinv(debug_percentile) * self.noise_std)
+            images = images + torch.randn([batch_size, num_channels, height, width], device=device) * sigma
 
         # Apply cutout with probability (cutout * strength).
         if self.cutout > 0:
-            size = paddle.full([batch_size, 2, 1, 1, 1], self.cutout_size, dtype=paddle.float32)
-            size = paddle.where(paddle.rand([batch_size, 1, 1, 1, 1], dtype=paddle.float32) < self.cutout * self.p, size, paddle.zeros_like(size))
-            center = paddle.rand([batch_size, 2, 1, 1, 1], dtype=paddle.float32)
+            size = torch.full([batch_size, 2, 1, 1, 1], self.cutout_size, device=device)
+            size = torch.where(torch.rand([batch_size, 1, 1, 1, 1], device=device) < self.cutout * self.p, size, torch.zeros_like(size))
+            center = torch.rand([batch_size, 2, 1, 1, 1], device=device)
             if debug_percentile is not None:
-                size = paddle.full_like(size, self.cutout_size)
-                center = paddle.full_like(center, debug_percentile)
-            coord_x = paddle.arange(width, device=device).reshape([1, 1, 1, -1])
-            coord_y = paddle.arange(height, device=device).reshape([1, 1, -1, 1])
+                size = torch.full_like(size, self.cutout_size)
+                center = torch.full_like(center, debug_percentile)
+            coord_x = torch.arange(width, device=device).reshape([1, 1, 1, -1])
+            coord_y = torch.arange(height, device=device).reshape([1, 1, -1, 1])
             mask_x = (((coord_x + 0.5) / width - center[:, 0]).abs() >= size[:, 0] / 2)
             mask_y = (((coord_y + 0.5) / height - center[:, 1]).abs() >= size[:, 1] / 2)
-            mask = paddle.logical_or(mask_x, mask_y).to(paddle.float32)
+            mask = torch.logical_or(mask_x, mask_y).to(torch.float32)
             images = images * mask
 
         return images
 
-
+#----------------------------------------------------------------------------
 
 
 
