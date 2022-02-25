@@ -29,6 +29,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.kimgs = 25000
         # self.kimgs = 30
         self.print_interval = 10
+        self.temp_img_interval = 100
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 

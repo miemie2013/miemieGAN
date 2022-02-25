@@ -277,21 +277,24 @@ class Trainer:
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
             self.model.eval()
-            if self.archi_name == 'StyleGANv2ADA':
-                for seed_idx, data in enumerate(self.test_loader):
-                    for k, v in data.items():
-                        data[k] = v.cuda()
-                    self.model.setup_input(data)
-                    with torch.no_grad():
-                        img_bgr = self.model.test_iter()
-                        save_folder = os.path.join(self.file_name, 'snapshot_imgs')
-                        os.makedirs(save_folder, exist_ok=True)
-                        save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seedidx{seed_idx:08d}.png')
-                        logger.info("Saving generation result in {}".format(save_file_name))
-                        cv2.imwrite(save_file_name, img_bgr)
-            else:
-                raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
+            self.stylegan_generate_imgs()
             self.model.train()
+
+    def stylegan_generate_imgs(self):
+        if self.archi_name == 'StyleGANv2ADA':
+            for seed_idx, data in enumerate(self.test_loader):
+                for k, v in data.items():
+                    data[k] = v.cuda()
+                self.model.setup_input(data)
+                with torch.no_grad():
+                    img_bgr = self.model.test_iter()
+                    save_folder = os.path.join(self.file_name, 'snapshot_imgs')
+                    os.makedirs(save_folder, exist_ok=True)
+                    save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seedidx{seed_idx:08d}.png')
+                    logger.info("Saving generation result in {}".format(save_file_name))
+                    cv2.imwrite(save_file_name, img_bgr)
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
     def before_iter(self):
         pass
@@ -326,6 +329,10 @@ class Trainer:
             log_msg += (", {}".format(eta_str))
             logger.info(log_msg)
             self.meter.clear_meters()
+        if (self.iter + 1) % self.exp.temp_img_interval == 0:
+            self.model.eval()
+            self.stylegan_generate_imgs()
+            self.model.train()
 
     @property
     def progress_in_iter(self):
