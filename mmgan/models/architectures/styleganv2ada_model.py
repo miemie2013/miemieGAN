@@ -152,6 +152,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         if do_Gpl:
             # print('----------------- do_Gpl -----------------')
             batch_size = gen_z.shape[0] // self.pl_batch_shrink
+            batch_size = max(batch_size, 1)
             # with misc.ddp_sync(self.G_flownet, sync):
             #     flow = self.G_flownet(torch.cat((cloth[:batch_size], aff_pose[:batch_size]), dim=1))
             # warp_cloth = F.grid_sample(cloth[:batch_size, :3, :, :], flow)

@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import numpy as np
 import math
 import scipy
+import scipy.signal
 
 
 
@@ -1110,7 +1111,7 @@ class StyleGANv2ADA_AugmentPipe(nn.Module):
             G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
 
             # Upsample.
-            images = upfirdn2d.upsample2d(x=images, f=self.Hz_geom, up=2)
+            images = upsample2d(x=images, f=self.Hz_geom, up=2)
             G_inv = scale2d(2, 2, device=device) @ G_inv @ scale2d_inv(2, 2, device=device)
             G_inv = translate2d(-0.5, -0.5, device=device) @ G_inv @ translate2d_inv(-0.5, -0.5, device=device)
 
