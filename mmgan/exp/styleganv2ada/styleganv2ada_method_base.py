@@ -29,7 +29,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
 
         self.max_epoch = None
         self.kimgs = 25000
-        # self.kimgs = 30
+        # self.kimgs = 300
         self.print_interval = 10
         self.temp_img_interval = 100
         self.eval_interval = 1
@@ -66,6 +66,10 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.channel_max = 512
         self.num_fp16_res = 4
         self.conv_clamp = 256
+        self.synthesis_freeze_at = []
+        # self.synthesis_freeze_at = ['b8', 'b16', 'b32', 'b64', 'b128']
+        self.discriminator_freeze_at = []
+        # self.discriminator_freeze_at = ['b8', 'b16', 'b32', 'b64', 'b128']
         self.synthesis_type = 'StyleGANv2ADA_SynthesisNetwork'
         self.synthesis = dict(
             w_dim=self.w_dim,
@@ -217,28 +221,55 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         return 1
 
     def get_optimizer(self, lr, name):
-        import itertools
         if name == 'G':
             if "optimizer_G" not in self.__dict__:
+                # lr = 0.00001   # 用于梯度对齐时换为SGD优化器时解除注释
+                param_groups = []
+                for name, param in self.model.synthesis.named_parameters():
+                    freeze = False
+                    for freeze_name in self.synthesis_freeze_at:
+                        if freeze_name in name:
+                            freeze = True
+                            break
+                    if not freeze:
+                        params0 = {'params': [param]}
+                        params0['lr'] = lr
+                        param_groups.append(params0)
+                for name, param in self.model.mapping.named_parameters():
+                    params0 = {'params': [param]}
+                    params0['lr'] = lr
+                    param_groups.append(params0)
                 optimizer = torch.optim.Adam(
-                    itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=lr,
+                    param_groups, lr=lr,
                     betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
                     eps=self.optimizer_cfg['generator']['epsilon']
                 )
                 # optimizer = torch.optim.SGD(
-                #     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.00001, momentum=0.9
+                #     param_groups, lr=0.00001, momentum=0.9
                 # )
                 self.optimizer_G = optimizer
             return self.optimizer_G
         elif name == 'D':
             if "optimizer_D" not in self.__dict__:
+                # lr = 0.00002   # 用于梯度对齐时换为SGD优化器时解除注释
+                param_groups = []
+                for name, param in self.model.discriminator.named_parameters():
+                    freeze = False
+                    for freeze_name in self.discriminator_freeze_at:
+                        if freeze_name in name:
+                            freeze = True
+                            break
+                    if not freeze:
+                        params0 = {'params': [param]}
+                        params0['lr'] = lr
+                        param_groups.append(params0)
                 optimizer = torch.optim.Adam(
-                    self.model.discriminator.parameters(), lr=lr,
+                    param_groups, lr=lr,
                     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
                     eps=self.optimizer_cfg['discriminator']['epsilon']
                 )
                 # optimizer = torch.optim.SGD(
-                #     self.model.discriminator.parameters(), lr=0.00002, momentum=0.9
+                #     param_groups, lr=0.00002, momentum=0.9
                 # )
                 self.optimizer_D = optimizer
             return self.optimizer_D

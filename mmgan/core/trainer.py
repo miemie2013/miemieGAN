@@ -164,17 +164,6 @@ class Trainer:
                     self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
                     self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
 
-
-            # param_groups = []
-            # base_wd = self.exp.weight_decay
-            # momentum = self.exp.momentum
-            # # 是否进行梯度裁剪
-            # self.need_clip = hasattr(self.exp, 'clip_grad_by_norm')
-            # self.clip_norm = 1000000.0
-            # if self.need_clip:
-            #     self.clip_norm = getattr(self.exp, 'clip_grad_by_norm')
-            # model.add_param_group(param_groups, self.base_lr, base_wd, self.need_clip, self.clip_norm)
-
             # solver related init
             self.optimizers = {}
             self.optimizer_G = self.exp.get_optimizer(self.base_lr_G, 'G')
@@ -232,19 +221,45 @@ class Trainer:
             self.tblogger = SummaryWriter(self.file_name)
 
         logger.info("Training start...")
-        # logger.info("\n{}".format(model))
-        trainable_params = 0
-        nontrainable_params = 0
-        for name_, param_ in model.named_parameters():
-            mul = np.prod(param_.shape)
-            if param_.requires_grad is True:
-                trainable_params += mul
-            else:
-                nontrainable_params += mul
-        total_params = trainable_params + nontrainable_params
-        logger.info('Total params: %s' % format(total_params, ","))
-        logger.info('Trainable params: %s' % format(trainable_params, ","))
-        logger.info('Non-trainable params: %s' % format(nontrainable_params, ","))
+        if self.archi_name == 'StyleGANv2ADA':
+            for name, module in [('synthesis', model.synthesis), ('mapping', model.mapping), ('discriminator', model.discriminator)]:
+                trainable_params = 0
+                nontrainable_params = 0
+                for name_, param_ in module.named_parameters():
+                    mul = np.prod(param_.shape)
+                    if name == 'synthesis':
+                        freeze = False
+                        for freeze_name in self.exp.synthesis_freeze_at:
+                            if freeze_name in name_:
+                                freeze = True
+                                break
+                        if not freeze:
+                            trainable_params += mul
+                        else:
+                            nontrainable_params += mul
+                    elif name == 'discriminator':
+                        freeze = False
+                        for freeze_name in self.exp.discriminator_freeze_at:
+                            if freeze_name in name_:
+                                freeze = True
+                                break
+                        if not freeze:
+                            trainable_params += mul
+                        else:
+                            nontrainable_params += mul
+                    else:
+                        if param_.requires_grad is True:
+                            trainable_params += mul
+                        else:
+                            nontrainable_params += mul
+                trainable_params = int(trainable_params)
+                nontrainable_params = int(nontrainable_params)
+                total_params = trainable_params + nontrainable_params
+                logger.info('StyleGANv2ADA %s Total params: %s' % (name, format(total_params, ",")))
+                logger.info('StyleGANv2ADA %s Trainable params: %s' % (name, format(trainable_params, ",")))
+                logger.info('StyleGANv2ADA %s Non-trainable params: %s' % (name, format(nontrainable_params, ",")))
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
     def after_train(self):
         logger.info(
