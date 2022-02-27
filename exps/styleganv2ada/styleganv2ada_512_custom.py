@@ -15,7 +15,8 @@ class Exp(StyleGANv2ADA_Method_Exp):
 
         self.flip_ema = True
         self.kimgs = 300
-        self.basic_lr_per_img = 0.0025 / 64.0
+        # self.basic_lr_per_img = 0.0025 / 64.0
+        self.basic_lr_per_img = 0.0025 / 16.0
         self.synthesis_freeze_at = []
         # self.synthesis_freeze_at = ['b8', 'b16', 'b32', 'b64', 'b128']
         self.discriminator_freeze_at = []
