@@ -154,6 +154,10 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
+            for name, param in synthesis_ema.named_parameters():
+                param.requires_grad = False
+            for name, param in mapping_ema.named_parameters():
+                param.requires_grad = False
             discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
             augment_pipe = None
             adjust_p = False  # 是否调整augment_pipe的p
@@ -235,6 +239,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                         params0 = {'params': [param]}
                         params0['lr'] = lr
                         param_groups.append(params0)
+                    else:
+                        param.requires_grad = False
                 for name, param in self.model.mapping.named_parameters():
                     params0 = {'params': [param]}
                     params0['lr'] = lr
@@ -263,6 +269,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                         params0 = {'params': [param]}
                         params0['lr'] = lr
                         param_groups.append(params0)
+                    else:
+                        param.requires_grad = False
                 optimizer = torch.optim.Adam(
                     param_groups, lr=lr,
                     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
