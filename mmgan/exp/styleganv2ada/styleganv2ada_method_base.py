@@ -152,6 +152,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         if getattr(self, "model", None) is None:
             synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
             synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
+            self.mapping['num_ws'] = synthesis.num_ws
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
             for name, param in synthesis_ema.named_parameters():
