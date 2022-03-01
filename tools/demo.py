@@ -26,7 +26,7 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN Demo!")
     parser.add_argument(
-        "demo", default="image", help="demo type, eg. image, video and webcam"
+        "demo", default="image", help="demo type, eg. image, video or style_mixing"
     )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 
@@ -40,6 +40,24 @@ def make_parser():
         default="85,100,75,458,1500",
         type=str,
         help="random seeds",
+    )
+    parser.add_argument(
+        "--row_seeds",
+        default="85,100,75,458,1500",
+        type=str,
+        help="random seeds",
+    )
+    parser.add_argument(
+        "--col_seeds",
+        default="55,821,1789,293",
+        type=str,
+        help="random seeds",
+    )
+    parser.add_argument(
+        "--col_styles",
+        default="0,1,2,3,4,5,6",
+        type=str,
+        help="col_styles",
     )
 
     # exp file
@@ -105,53 +123,95 @@ def main(exp, args):
             model.half()  # to FP16
     model.eval()
 
-    # 不同的算法输入不同，新增算法时这里也要增加elif
-    if archi_name == 'StyleGANv2ADA':
-        # 加载模型权重
-        if args.ckpt is None:
-            ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+    if args.demo == "image":
+        # 不同的算法输入不同，新增算法时这里也要增加elif
+        if archi_name == 'StyleGANv2ADA':
+            # 加载模型权重
+            if args.ckpt is None:
+                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+            else:
+                ckpt_file = args.ckpt
+            logger.info("loading checkpoint")
+            ckpt = torch.load(ckpt_file, map_location="cpu")
+            model = load_ckpt(model, ckpt["model"])
+            logger.info("loaded checkpoint done.")
+
+            seeds = args.seeds
+            seeds = seeds.split(',')
+            seeds = [int(seed) for seed in seeds]
+            current_time = time.localtime()
+
+            for seed in seeds:
+                z = np.random.RandomState(seed).randn(1, model.z_dim)
+                z = torch.from_numpy(z)
+                z = z.float()
+                if args.device == "gpu":
+                    z = z.cuda()
+                    if args.fp16:
+                        z = z.half()  # to FP16
+                data = {
+                    'z': z,
+                }
+                model.setup_input(data)
+                with torch.no_grad():
+                    img_bgr = model.test_iter()
+                    if args.save_result:
+                        save_folder = os.path.join(
+                            vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
+                        )
+                        os.makedirs(save_folder, exist_ok=True)
+                        save_file_name = os.path.join(save_folder, f'seed{seed:08d}.png')
+                        logger.info("Saving generation result in {}".format(save_file_name))
+                        cv2.imwrite(save_file_name, img_bgr)
+
         else:
-            ckpt_file = args.ckpt
-        logger.info("loading checkpoint")
-        ckpt = torch.load(ckpt_file, map_location="cpu")
-        model = load_ckpt(model, ckpt["model"])
-        logger.info("loaded checkpoint done.")
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
+    elif args.demo == "style_mixing":
+        # 不同的算法输入不同，新增算法时这里也要增加elif
+        if archi_name == 'StyleGANv2ADA':
+            # 加载模型权重
+            if args.ckpt is None:
+                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+            else:
+                ckpt_file = args.ckpt
+            logger.info("loading checkpoint")
+            ckpt = torch.load(ckpt_file, map_location="cpu")
+            model = load_ckpt(model, ckpt["model"])
+            logger.info("loaded checkpoint done.")
 
-        seeds = args.seeds
-        seeds = seeds.split(',')
-        seeds = [int(seed) for seed in seeds]
-        current_time = time.localtime()
+            row_seeds = args.row_seeds.split(',')
+            row_seeds = [int(seed) for seed in row_seeds]
+            col_seeds = args.col_seeds.split(',')
+            col_seeds = [int(seed) for seed in col_seeds]
+            col_styles = args.col_styles.split(',')
+            col_styles = [int(seed) for seed in col_styles]
+            all_seeds = list(set(row_seeds + col_seeds))
+            current_time = time.localtime()
 
-        for seed in seeds:
-            z = np.random.RandomState(seed).randn(1, model.z_dim)
-            z = torch.from_numpy(z)
-            z = z.float()
+            all_z = np.stack([np.random.RandomState(seed).randn(model.z_dim) for seed in all_seeds])
+            all_z = torch.from_numpy(all_z)
+            all_z = all_z.float()
             if args.device == "gpu":
-                z = z.cuda()
+                all_z = all_z.cuda()
                 if args.fp16:
-                    z = z.half()  # to FP16
+                    all_z = all_z.half()  # to FP16
             data = {
-                'z': z,
+                'z': all_z,
             }
             model.setup_input(data)
             with torch.no_grad():
-                img_bgr = model.test_iter()
+                img_bgr = model.style_mixing(row_seeds, col_seeds, all_seeds, col_styles)
                 if args.save_result:
                     save_folder = os.path.join(
                         vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
                     )
                     os.makedirs(save_folder, exist_ok=True)
-                    save_file_name = os.path.join(save_folder, f'seed{seed:08d}.png')
+                    save_file_name = os.path.join(save_folder, f'style_mixing.png')
                     logger.info("Saving generation result in {}".format(save_file_name))
                     cv2.imwrite(save_file_name, img_bgr)
 
-    else:
-        raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
-    # current_time = time.localtime()
-    # if args.demo == "image":
-    #     image_demo(predictor, vis_folder, args.path, current_time, args.save_result)
-    # elif args.demo == "video" or args.demo == "webcam":
-    #     imageflow_demo(predictor, vis_folder, current_time, args)
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
 
 if __name__ == "__main__":

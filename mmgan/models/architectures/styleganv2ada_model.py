@@ -423,3 +423,42 @@ class StyleGANv2ADAModel(torch.nn.Module):
         img_rgb = img.cpu().detach().numpy()[0]
         img_bgr = img_rgb[:, :, [2, 1, 0]]
         return img_bgr
+
+    def style_mixing(self, row_seeds, col_seeds, all_seeds, col_styles):
+        all_z = self.input['z']
+        # noise_mode = ['const', 'random', 'none']
+        noise_mode = 'const'
+        truncation_psi = 1.0
+        all_w = self.mapping_ema(all_z, None)
+        w_avg = self.mapping_ema.w_avg
+        all_w = w_avg + (all_w - w_avg) * truncation_psi
+        w_dict = {seed: w for seed, w in zip(all_seeds, list(all_w))}
+
+        # print('Generating images...')
+        all_images = self.synthesis_ema(all_w, noise_mode=noise_mode)
+        all_images = (all_images.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8).cpu().numpy()
+        image_dict = {(seed, seed): image for seed, image in zip(all_seeds, list(all_images))}
+
+        # print('Generating style-mixed images...')
+        for row_seed in row_seeds:
+            for col_seed in col_seeds:
+                w = w_dict[row_seed].clone()
+                w[col_styles] = w_dict[col_seed][col_styles]
+                image = self.synthesis_ema(w[np.newaxis], noise_mode=noise_mode)
+                image = (image.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
+                image_dict[(row_seed, col_seed)] = image[0].cpu().numpy()
+
+        # print('Saving image grid...')
+        ROW = len(row_seeds)
+        COL = len(col_seeds)
+        res = self.synthesis_ema.img_resolution
+        grid_img_rgb = np.zeros(((ROW+1)*res, (COL+1)*res, 3), dtype=np.uint8)
+        for j, row_seed in enumerate(row_seeds):
+            for i, col_seed in enumerate(col_seeds):
+                grid_img_rgb[(j+1)*res:(j+2)*res, (i+1)*res:(i+2)*res, :] = image_dict[(row_seed, col_seed)]
+        for j, row_seed in enumerate(row_seeds):
+            grid_img_rgb[(j+1)*res:(j+2)*res, 0:res, :] = image_dict[(row_seed, row_seed)]
+        for i, col_seed in enumerate(col_seeds):
+            grid_img_rgb[0:res, (i+1)*res:(i+2)*res, :] = image_dict[(col_seed, col_seed)]
+        grid_img_bgr = grid_img_rgb[:, :, [2, 1, 0]]
+        return grid_img_bgr
