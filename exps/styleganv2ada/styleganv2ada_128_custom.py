@@ -17,12 +17,9 @@ class Exp(StyleGANv2ADA_Method_Exp):
         # --------------  training config --------------------- #
         self.G_reg_interval = 4
         self.D_reg_interval = 16
-        self.flip_ema = False
-        # self.flip_ema = True
 
         self.max_epoch = None
-        # self.kimgs = 25000
-        self.kimgs = 300
+        self.kimgs = 25000
         self.print_interval = 10
         self.temp_img_interval = 100
         self.eval_interval = 1
@@ -78,7 +75,6 @@ class Exp(StyleGANv2ADA_Method_Exp):
             z_dim=self.z_dim,
             c_dim=self.c_dim,
             w_dim=self.w_dim,
-            num_ws=12,
             num_layers=8,
         )
         self.discriminator_type = 'StyleGANv2ADA_Discriminator'
@@ -120,12 +116,12 @@ class Exp(StyleGANv2ADA_Method_Exp):
             ada_kimg=100,
             ada_interval=4,
             ada_target=0.6,
-            flip_ema=self.flip_ema,
         )
 
         # ---------------- dataset config ---------------- #
         # self.dataroot = '../data/data42681/afhq/train/cat'
-        self.dataroot = '../data/data42681/afhq/train/dog_128'
+        # self.dataroot = '../data/data42681/afhq/train/dog_128'
+        self.dataroot = '../data/flowers_128'
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,

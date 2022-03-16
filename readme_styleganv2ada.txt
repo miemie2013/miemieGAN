@@ -63,6 +63,9 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqca
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/67.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
 
 
 
@@ -118,6 +121,9 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 
 
 
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/7.pth --resume > stylegan2ada.log 2>&1 &
+
+
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/7.pth --resume > stylegan2ada_128.log 2>&1 &
 
 
 

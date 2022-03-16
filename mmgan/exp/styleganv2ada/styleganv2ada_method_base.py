@@ -24,8 +24,6 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # --------------  training config --------------------- #
         self.G_reg_interval = 4
         self.D_reg_interval = 16
-        self.flip_ema = False
-        # self.flip_ema = True
 
         self.max_epoch = None
         self.kimgs = 25000
@@ -85,7 +83,6 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             z_dim=self.z_dim,
             c_dim=self.c_dim,
             w_dim=self.w_dim,
-            num_ws=16,
             num_layers=8,
         )
         self.discriminator_type = 'StyleGANv2ADA_Discriminator'
@@ -127,7 +124,6 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             ada_kimg=100,
             ada_interval=4,
             ada_target=0.6,
-            flip_ema=self.flip_ema,
         )
 
         # ---------------- dataset config ---------------- #

@@ -38,7 +38,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
         ada_interval=4,
         ada_target=None,
         adjust_p=False,
-        flip_ema=False,
     ):
         super(StyleGANv2ADAModel, self).__init__()
         self.optimizers = OrderedDict()
@@ -90,7 +89,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.ada_interval = ada_interval
         self.adjust_p = adjust_p
         self.Loss_signs_real = []
-        self.flip_ema = flip_ema
 
 
 
@@ -370,8 +368,6 @@ class StyleGANv2ADAModel(torch.nn.Module):
         if ema_rampup is not None:
             ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
         ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
-        if self.flip_ema:
-            ema_beta = 1.0 - ema_beta
         for p_ema, p in zip(self.mapping_ema.parameters(), self.mapping.parameters()):
             p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p   ;ema模型占的比重ema_beta大
         for b_ema, b in zip(self.mapping_ema.buffers(), self.mapping.buffers()):
