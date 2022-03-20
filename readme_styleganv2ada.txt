@@ -86,6 +86,9 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+
+
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
