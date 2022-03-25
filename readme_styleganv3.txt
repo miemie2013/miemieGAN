@@ -40,6 +40,18 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
 
 
 
+
+原仓库中，docs/configs.md中
+--gamma=16.4  表示  self.model_cfg['r1_gamma']=16.4
+--mirror=1  表示  self.dataset_train_cfg['xflip']=True
+--kimg如果不指定，默认是25000
+
+作者说，r1_gamma对数据集分辨率比较敏感，
+建议试着用推荐的r1_gamma、2倍的r1_gamma、4倍的r1_gamma、0.5倍的r1_gamma、0.25倍的r1_gamma训练，选择产生最低FID的即可。
+
+作者说，迁移学习推荐--kimg=5000
+
+
 ----------------------- 转换权重 -----------------------
 python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c_G G_afhqv2_r_512.pth -c_Gema G_ema_afhqv2_r_512.pth -c_D D_afhqv2_r_512.pth -oc stylegan3_r_afhqv2_512.pth
 

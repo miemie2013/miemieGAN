@@ -129,7 +129,12 @@ class Trainer:
 
         # model related init
         torch.cuda.set_device(self.local_rank)
-        model = self.exp.get_model()
+        if self.archi_name == 'StyleGANv2ADA':
+            model = self.exp.get_model()
+        elif self.archi_name == 'StyleGANv3':
+            model = self.exp.get_model(self.args.batch_size)
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
         # logger.info("Model Summary: {}".format(get_model_info(self.archi_name, model, self.exp.test_size)))
         model.to(self.device)
 

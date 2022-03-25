@@ -26,15 +26,15 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.D_reg_interval = 16
 
         self.max_epoch = None
-        self.kimgs = 5000
+        self.kimgs = 25000
         self.print_interval = 10
         self.temp_img_interval = 100
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.basic_glr_per_img = 0.0025 / 64.0
-        self.basic_dlr_per_img = 0.002 / 64.0
+        self.basic_glr_per_img = 0.0025 / 32.0
+        self.basic_dlr_per_img = 0.002 / 32.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -109,7 +109,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
-            r1_gamma=6.6,
+            r1_gamma=16.4,
             pl_batch_shrink=2,
             ema_kimg=-1,
             ema_rampup=None,
