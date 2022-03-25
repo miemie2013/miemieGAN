@@ -80,7 +80,7 @@ class StyleGANv3_Method_Exp(BaseExp):
             w_dim=self.w_dim,
             num_layers=2,
         )
-        self.discriminator_type = 'StyleGANv2ADA_Discriminator'
+        self.discriminator_type = 'StyleGANv3_Discriminator'
         self.discriminator = dict(
             c_dim=self.c_dim,
             img_resolution=self.img_resolution,
@@ -135,9 +135,9 @@ class StyleGANv3_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self, batch_size):
-        from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator, StyleGANv2ADA_AugmentPipe
-        from mmgan.models import StyleGANv2ADAModel
+    def get_model(self, batch_size=1):
+        from mmgan.models import StyleGANv3_SynthesisNetwork, StyleGANv3_MappingNetwork, StyleGANv3_Discriminator, StyleGANv2ADA_AugmentPipe
+        from mmgan.models import StyleGANv3Model
         if getattr(self, "model", None) is None:
             # 修改配置。
             self.model_cfg['ema_kimg'] = batch_size * 10 / 32
@@ -150,16 +150,16 @@ class StyleGANv3_Method_Exp(BaseExp):
                 self.model_cfg['blur_init_sigma'] = 10
                 self.model_cfg['blur_fade_kimg'] = batch_size * 200 / 32
 
-            synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
-            synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
+            synthesis = StyleGANv3_SynthesisNetwork(**self.synthesis)
+            synthesis_ema = StyleGANv3_SynthesisNetwork(**self.synthesis)
             self.mapping['num_ws'] = synthesis.num_ws
-            mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
-            mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
+            mapping = StyleGANv3_MappingNetwork(**self.mapping)
+            mapping_ema = StyleGANv3_MappingNetwork(**self.mapping)
             for name, param in synthesis_ema.named_parameters():
                 param.requires_grad = False
             for name, param in mapping_ema.named_parameters():
                 param.requires_grad = False
-            discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
+            discriminator = StyleGANv3_Discriminator(**self.discriminator)
             augment_pipe = None
             adjust_p = False  # 是否调整augment_pipe的p
             if hasattr(self, 'augment_pipe') and (self.model_cfg['augment_p'] > 0 or self.model_cfg['ada_target'] is not None):
@@ -167,7 +167,7 @@ class StyleGANv3_Method_Exp(BaseExp):
                 augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
                 if self.model_cfg['ada_target'] is not None:
                     adjust_p = True
-            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
+            self.model = StyleGANv3Model(synthesis, synthesis_ema, mapping, mapping_ema,
                                             discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 

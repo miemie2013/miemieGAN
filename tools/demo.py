@@ -114,8 +114,18 @@ def main(exp, args):
     # 算法名字
     archi_name = exp.archi_name
 
-    model = exp.get_model()
-    # logger.info("Model Summary: {}".format(get_model_info(archi_name, model, exp.test_size)))
+    if archi_name == 'StyleGANv2ADA':
+        model = exp.get_model()
+    elif archi_name == 'StyleGANv3':
+        model = exp.get_model(batch_size=1)
+        ckpt_state = {
+            "start_epoch": 0,
+            "model": model.state_dict(),
+        }
+        torch.save(model.state_dict(), "pytorch_fullyConnectedLayer.pth")
+    else:
+        raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
+
 
     if args.device == "gpu":
         model.cuda()
@@ -125,7 +135,7 @@ def main(exp, args):
 
     if args.demo == "image":
         # 不同的算法输入不同，新增算法时这里也要增加elif
-        if archi_name == 'StyleGANv2ADA':
+        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
             # 加载模型权重
             if args.ckpt is None:
                 ckpt_file = os.path.join(file_name, "best_ckpt.pth")
@@ -168,7 +178,7 @@ def main(exp, args):
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
     elif args.demo == "style_mixing":
         # 不同的算法输入不同，新增算法时这里也要增加elif
-        if archi_name == 'StyleGANv2ADA':
+        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
             # 加载模型权重
             if args.ckpt is None:
                 ckpt_file = os.path.join(file_name, "best_ckpt.pth")

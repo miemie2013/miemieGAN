@@ -150,6 +150,43 @@ def main(exp, args):
         synthesis_ema.load_state_dict(synthesis_ema_std)
         mapping.load_state_dict(mapping_std)
         mapping_ema.load_state_dict(mapping_ema_std)
+    elif model_class_name == 'StyleGANv3Model':
+        generator_dic = torch.load(args.c_G, map_location=torch.device('cpu'))
+        generator_ema_dic = torch.load(args.c_Gema, map_location=torch.device('cpu'))
+        discriminator_dic = torch.load(args.c_D, map_location=torch.device('cpu'))
+
+        synthesis = model.synthesis
+        synthesis_ema = model.synthesis_ema
+        mapping = model.mapping
+        mapping_ema = model.mapping_ema
+        discriminator = model.discriminator
+
+        synthesis_std = synthesis.state_dict()
+        synthesis_ema_std = synthesis_ema.state_dict()
+        mapping_std = mapping.state_dict()
+        mapping_ema_std = mapping_ema.state_dict()
+        # discriminator_std = discriminator.state_dict()
+
+        discriminator.load_state_dict(discriminator_dic)
+
+        for key, value in synthesis_std.items():
+            key2 = 'synthesis.' + key
+            synthesis_std[key] = generator_dic[key2]
+        for key, value in synthesis_ema_std.items():
+            key2 = 'synthesis.' + key
+            synthesis_ema_std[key] = generator_ema_dic[key2]
+
+        for key, value in mapping_std.items():
+            key2 = 'mapping.' + key
+            mapping_std[key] = generator_dic[key2]
+        for key, value in mapping_ema_std.items():
+            key2 = 'mapping.' + key
+            mapping_ema_std[key] = generator_ema_dic[key2]
+
+        synthesis.load_state_dict(synthesis_std)
+        synthesis_ema.load_state_dict(synthesis_ema_std)
+        mapping.load_state_dict(mapping_std)
+        mapping_ema.load_state_dict(mapping_ema_std)
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(model_class_name))
 

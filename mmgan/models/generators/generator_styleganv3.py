@@ -260,9 +260,9 @@ def filtered_lrelu(x, fu=None, fd=None, b=None, up=1, down=1, padding=0, gain=np
     out_h = (in_h * up + (py0 + py1) - (fu_h - 1) - (fd_h - 1) + (down - 1)) // down
 
     # Compute using existing ops.
-    x = bias_act.bias_act(x=x, b=b) # Apply bias.
+    x = bias_act(x=x, b=b) # Apply bias.
     x = upfirdn2d(x=x, f=fu, up=up, padding=[px0, px1, py0, py1], gain=up**2, flip_filter=flip_filter) # Upsample.
-    x = bias_act.bias_act(x=x, act='lrelu', alpha=slope, gain=gain, clamp=clamp) # Bias, leaky ReLU, clamp.
+    x = bias_act(x=x, act='lrelu', alpha=slope, gain=gain, clamp=clamp) # Bias, leaky ReLU, clamp.
     x = upfirdn2d(x=x, f=fd, down=down, flip_filter=flip_filter) # Downsample.
 
     # Check output shape & dtype.
