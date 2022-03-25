@@ -91,7 +91,7 @@ class Trainer:
 
     def train_one_iter(self):
         iter_start_time = time.time()
-        if self.archi_name == 'StyleGANv2ADA':
+        if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             # StyleGANv2ADA不使用混合精度训练，所以训练代码只写了FP32的情况。
             phase_real_img, phase_real_c, phases_all_gen_c = self.prefetcher.next()
             phase_real_img = phase_real_img.to(self.data_type)
@@ -201,7 +201,8 @@ class Trainer:
             # max_iter means iters per epoch
             self.max_iter = len(self.train_loader)
         elif self.archi_name == 'StyleGANv3':
-            learning_rate = self.exp.basic_lr_per_img * self.args.batch_size
+            learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
+            learning_rate_d = self.exp.basic_dlr_per_img * self.args.batch_size
             beta1 = self.exp.optimizer_cfg['generator']['beta1']
             beta2 = self.exp.optimizer_cfg['generator']['beta2']
 
@@ -210,23 +211,29 @@ class Trainer:
 
             for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
                 if reg_interval is None:
-                    pass
-                    # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
-                    #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
-                    # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
+                    if name == 'G':
+                        self.base_lr_G = learning_rate_g
+                    elif name == 'D':
+                        self.base_lr_D = learning_rate_d
                 else:  # Lazy regularization.
-                    mb_ratio = reg_interval / (reg_interval + 1)
-                    new_lr = learning_rate * mb_ratio
-                    new_beta1 = beta1 ** mb_ratio
-                    new_beta2 = beta2 ** mb_ratio
-                if name == 'G':
-                    self.base_lr_G = new_lr
-                    self.exp.optimizer_cfg['generator']['beta1'] = new_beta1
-                    self.exp.optimizer_cfg['generator']['beta2'] = new_beta2
-                elif name == 'D':
-                    self.base_lr_D = new_lr
-                    self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
-                    self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
+                    if name == 'G':
+                        mb_ratio = reg_interval / (reg_interval + 1)
+                        new_lr = learning_rate_g * mb_ratio
+                        new_beta1 = beta1 ** mb_ratio
+                        new_beta2 = beta2 ** mb_ratio
+
+                        self.base_lr_G = new_lr
+                        self.exp.optimizer_cfg['generator']['beta1'] = new_beta1
+                        self.exp.optimizer_cfg['generator']['beta2'] = new_beta2
+                    elif name == 'D':
+                        mb_ratio = reg_interval / (reg_interval + 1)
+                        new_lr = learning_rate_d * mb_ratio
+                        new_beta1 = beta1 ** mb_ratio
+                        new_beta2 = beta2 ** mb_ratio
+
+                        self.base_lr_D = new_lr
+                        self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
+                        self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
 
             # solver related init
             self.optimizers = {}
@@ -244,11 +251,10 @@ class Trainer:
                 if self.args.ckpt is not None:
                     resume = True
             if resume:
-                aaaaaaaaaa = 1
                 # 需要修改配置
-                # c.ada_kimg = 100 # Make ADA react faster at the beginning.
-                # c.ema_rampup = None # Disable EMA rampup.
-                # c.loss_kwargs.blur_init_sigma = 0 # Disable blur rampup.
+                model.ada_kimg = 100        # Make ADA react faster at the beginning.
+                model.ema_rampup = None     # Disable EMA rampup.
+                model.blur_init_sigma = 0   # Disable blur rampup.
 
 
             self.train_loader = self.exp.get_data_loader(
@@ -297,7 +303,7 @@ class Trainer:
             self.tblogger = SummaryWriter(self.file_name)
 
         logger.info("Training start...")
-        if self.archi_name == 'StyleGANv2ADA':
+        if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             for name, module in [('synthesis', model.synthesis), ('mapping', model.mapping), ('discriminator', model.discriminator)]:
                 trainable_params = 0
                 nontrainable_params = 0
@@ -331,9 +337,9 @@ class Trainer:
                 trainable_params = int(trainable_params)
                 nontrainable_params = int(nontrainable_params)
                 total_params = trainable_params + nontrainable_params
-                logger.info('StyleGANv2ADA %s Total params: %s' % (name, format(total_params, ",")))
-                logger.info('StyleGANv2ADA %s Trainable params: %s' % (name, format(trainable_params, ",")))
-                logger.info('StyleGANv2ADA %s Non-trainable params: %s' % (name, format(nontrainable_params, ",")))
+                logger.info('StyleGANv2ADA(v3) %s Total params: %s' % (name, format(total_params, ",")))
+                logger.info('StyleGANv2ADA(v3) %s Trainable params: %s' % (name, format(trainable_params, ",")))
+                logger.info('StyleGANv2ADA(v3) %s Non-trainable params: %s' % (name, format(nontrainable_params, ",")))
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -345,6 +351,8 @@ class Trainer:
     def before_epoch(self):
         logger.info("---> start train epoch{}".format(self.epoch + 1))
         if self.archi_name == 'StyleGANv2ADA':
+            self.train_loader.dataset.set_epoch(self.epoch)
+        elif self.archi_name == 'StyleGANv3':
             self.train_loader.dataset.set_epoch(self.epoch)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
@@ -358,7 +366,7 @@ class Trainer:
             self.model.train()
 
     def stylegan_generate_imgs(self):
-        if self.archi_name == 'StyleGANv2ADA':
+        if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             for seed_idx, data in enumerate(self.test_loader):
                 for k, v in data.items():
                     data[k] = v.cuda()
@@ -426,7 +434,7 @@ class Trainer:
             ckpt = torch.load(ckpt_file, map_location=self.device)
             # resume the model/optimizer state dict
             model.load_state_dict(ckpt["model"])
-            if self.archi_name == 'StyleGANv2ADA':
+            if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
                 self.optimizer_G.load_state_dict(ckpt["optimizer_G"])
                 self.optimizer_D.load_state_dict(ckpt["optimizer_D"])
             else:
@@ -471,7 +479,7 @@ class Trainer:
         if self.rank == 0:
             save_model = self.model
             logger.info("Save weights to {}".format(self.file_name))
-            if self.archi_name == 'StyleGANv2ADA':
+            if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
                 ckpt_state = {
                     "start_epoch": self.epoch + 1,
                     "model": save_model.state_dict(),

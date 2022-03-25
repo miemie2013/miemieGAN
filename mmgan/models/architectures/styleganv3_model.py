@@ -62,10 +62,7 @@ class StyleGANv3Model(torch.nn.Module):
         self.phases = []
         for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
             if reg_interval is None:
-                # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
-                #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
-                # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
-                pass
+                self.phases += [dict(name=name + 'both', interval=1)]
             else:  # Lazy regularization.
                 self.phases += [dict(name=name + 'main', interval=1)]
                 self.phases += [dict(name=name + 'reg', interval=reg_interval)]
@@ -269,6 +266,7 @@ class StyleGANv3Model(torch.nn.Module):
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
+        dic2 = None
         # 对齐梯度用
         # print('======================== batch%.5d.npz ========================'%self.batch_idx)
         # npz_path = 'tools/batch%.5d.npz'%self.batch_idx
@@ -332,14 +330,11 @@ class StyleGANv3Model(torch.nn.Module):
             # 梯度累加。一个总的批次的图片分开{显卡数量}次遍历。
             # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
             for round_idx, (real_img, real_c, gen_z, gen_c) in enumerate(zip(phase_real_img, phase_real_c, phase_gen_z, phase_gen_c)):
-                sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)   # 咩酱：右边的式子结果一定是0。即只有0号gpu做同步。这是梯度累加的固定写法。
                 gain = phase['interval']     # 咩酱：即上文提到的训练间隔。
 
                 # 梯度累加（变相增大批大小）。
-                # loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
-                #                                        gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain, dic2=dic2)
                 loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
-                                                       gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain)
+                                                       gen_z=gen_z, gen_c=gen_c, gain=gain, cur_nimg=self.cur_nimg, dic2=dic2)
                 for k, v in loss_numpy.items():
                     if k in loss_numpys:
                         loss_numpys[k] += v

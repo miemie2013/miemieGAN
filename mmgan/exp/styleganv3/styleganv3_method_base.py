@@ -22,7 +22,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.archi_name = 'StyleGANv3'
 
         # --------------  training config --------------------- #
-        self.G_reg_interval = 4
+        self.G_reg_interval = None
         self.D_reg_interval = 16
 
         self.max_epoch = None

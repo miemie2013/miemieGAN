@@ -50,7 +50,7 @@ class Exp(StyleGANv3_Method_Exp):
         self.w_dim = 512
         self.z_dim = 512
         self.c_dim = 0
-        self.img_resolution = 256
+        self.img_resolution = 128
         self.img_channels = 3
         self.channel_base = 32768
         self.channel_max = 512
@@ -113,8 +113,9 @@ class Exp(StyleGANv3_Method_Exp):
         )
 
         # ---------------- dataset config ---------------- #
-        self.dataroot = '../data/data110820/faces'
-        # self.dataroot = '../data/data42681/afhq/train/dog_256'
+        # self.dataroot = '../data/data42681/afhq/train/cat'
+        # self.dataroot = '../data/data42681/afhq/train/dog_128'
+        self.dataroot = '../data/flowers_128'
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,

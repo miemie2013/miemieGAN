@@ -72,7 +72,17 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 
 
 ----------------------- 迁移学习，带上-c（--ckpt）参数读取预训练模型。 -----------------------
-python tools/train.py -f exps/styleganv3/styleganv3_r_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_afhqv2_512.pth
+
+
+
+python tools/train.py -f exps/styleganv3/styleganv3_r_128_custom.py -d 1 -b 1 -eb 1 -c stylegan3_r_afhqv2_512.pth
+
+
+
+python tools/train.py -f exps/styleganv3/styleganv3_r_256_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_afhqv2_512.pth
+
+
 
 
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
