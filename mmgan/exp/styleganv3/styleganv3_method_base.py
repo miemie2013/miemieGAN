@@ -19,23 +19,22 @@ class StyleGANv3_Method_Exp(BaseExp):
     def __init__(self):
         super().__init__()
         # ---------------- architecture name(算法名) ---------------- #
-        self.archi_name = 'StyleGANv2ADA'
+        self.archi_name = 'StyleGANv3'
 
         # --------------  training config --------------------- #
         self.G_reg_interval = 4
         self.D_reg_interval = 16
 
         self.max_epoch = None
-        self.kimgs = 25000
-        # self.kimgs = 300
+        self.kimgs = 5000
         self.print_interval = 10
         self.temp_img_interval = 100
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.basic_lr_per_img = 0.0025 / 64.0
-        # self.basic_lr_per_img = 0.0025 / 2.0
+        self.basic_glr_per_img = 0.0025 / 64.0
+        self.basic_dlr_per_img = 0.002 / 64.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -62,12 +61,9 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.img_channels = 3
         self.channel_base = 32768
         self.channel_max = 512
-        self.num_fp16_res = 4
-        self.conv_clamp = 256
         self.synthesis_freeze_at = []
-        # self.synthesis_freeze_at = ['b8', 'b16', 'b32', 'b64', 'b128']
         self.discriminator_freeze_at = []
-        # self.discriminator_freeze_at = ['b8', 'b16', 'b32', 'b64', 'b128']
+        self.stylegan_cfg = 'stylegan3-r'
         self.synthesis_type = 'StyleGANv3_SynthesisNetwork'
         self.synthesis = dict(
             w_dim=self.w_dim,
@@ -75,15 +71,14 @@ class StyleGANv3_Method_Exp(BaseExp):
             img_channels=self.img_channels,
             channel_base=self.channel_base,
             channel_max=self.channel_max,
-            num_fp16_res=self.num_fp16_res,
-            conv_clamp=self.conv_clamp,
+            magnitude_ema_beta=0.999,
         )
         self.mapping_type = 'StyleGANv3_MappingNetwork'
         self.mapping = dict(
             z_dim=self.z_dim,
             c_dim=self.c_dim,
             w_dim=self.w_dim,
-            num_layers=8,
+            num_layers=2,
         )
         self.discriminator_type = 'StyleGANv2ADA_Discriminator'
         self.discriminator = dict(
@@ -92,11 +87,9 @@ class StyleGANv3_Method_Exp(BaseExp):
             img_channels=self.img_channels,
             channel_base=self.channel_base,
             channel_max=self.channel_max,
-            num_fp16_res=self.num_fp16_res,
-            conv_clamp=self.conv_clamp,
-            block_kwargs={},
+            block_kwargs=dict(freeze_layers=0,),
             mapping_kwargs={},
-            epilogue_kwargs=dict(mbstd_group_size=8,),
+            epilogue_kwargs=dict(mbstd_group_size=None,),   # default is 4
         )
         self.augment_pipe_type = 'StyleGANv2ADA_AugmentPipe'
         self.augment_pipe = dict(
@@ -116,9 +109,9 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
-            r1_gamma=0.5,
-            pl_batch_shrink=2,  # default is 2. when train batch_size is 1, set to 1.
-            ema_kimg=20,
+            r1_gamma=6.6,
+            pl_batch_shrink=2,
+            ema_kimg=-1,
             ema_rampup=None,
             augment_p=0.0,
             ada_kimg=100,
@@ -142,10 +135,21 @@ class StyleGANv3_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self):
+    def get_model(self, batch_size):
         from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv2ADAModel
         if getattr(self, "model", None) is None:
+            # 修改配置。
+            self.model_cfg['ema_kimg'] = batch_size * 10 / 32
+            self.synthesis['magnitude_ema_beta'] = 0.5 ** (batch_size / (20 * 1e3))
+            if self.stylegan_cfg == 'stylegan3-r':
+                self.synthesis['conv_kernel'] = 1
+                self.synthesis['channel_base'] *= 2
+                self.synthesis['channel_max'] *= 2
+                self.synthesis['use_radial_filters'] = True
+                self.model_cfg['blur_init_sigma'] = 10
+                self.model_cfg['blur_fade_kimg'] = batch_size * 200 / 32
+
             synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
             synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
             self.mapping['num_ws'] = synthesis.num_ws

@@ -117,7 +117,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
             r1_gamma=0.5,
-            pl_batch_shrink=2,  # default is 2. when train batch_size is 1, set to 1.
+            pl_batch_shrink=2,
             ema_kimg=20,
             ema_rampup=None,
             augment_p=0.0,

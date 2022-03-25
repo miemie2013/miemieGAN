@@ -200,6 +200,82 @@ class Trainer:
 
             # max_iter means iters per epoch
             self.max_iter = len(self.train_loader)
+        elif self.archi_name == 'StyleGANv3':
+            learning_rate = self.exp.basic_lr_per_img * self.args.batch_size
+            beta1 = self.exp.optimizer_cfg['generator']['beta1']
+            beta2 = self.exp.optimizer_cfg['generator']['beta2']
+
+            G_reg_interval = self.exp.G_reg_interval
+            D_reg_interval = self.exp.D_reg_interval
+
+            for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
+                if reg_interval is None:
+                    pass
+                    # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
+                    #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
+                    # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
+                else:  # Lazy regularization.
+                    mb_ratio = reg_interval / (reg_interval + 1)
+                    new_lr = learning_rate * mb_ratio
+                    new_beta1 = beta1 ** mb_ratio
+                    new_beta2 = beta2 ** mb_ratio
+                if name == 'G':
+                    self.base_lr_G = new_lr
+                    self.exp.optimizer_cfg['generator']['beta1'] = new_beta1
+                    self.exp.optimizer_cfg['generator']['beta2'] = new_beta2
+                elif name == 'D':
+                    self.base_lr_D = new_lr
+                    self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
+                    self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
+
+            # solver related init
+            self.optimizers = {}
+            self.optimizer_G = self.exp.get_optimizer(self.base_lr_G, 'G')
+            self.optimizer_D = self.exp.get_optimizer(self.base_lr_D, 'D')
+            self.optimizers['optimizer_G'] = self.optimizer_G
+            self.optimizers['optimizer_D'] = self.optimizer_D
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
+            resume = False
+            if self.args.resume:
+                resume = True
+            else:
+                if self.args.ckpt is not None:
+                    resume = True
+            if resume:
+                aaaaaaaaaa = 1
+                # 需要修改配置
+                # c.ada_kimg = 100 # Make ADA react faster at the beginning.
+                # c.ema_rampup = None # Disable EMA rampup.
+                # c.loss_kwargs.blur_init_sigma = 0 # Disable blur rampup.
+
+
+            self.train_loader = self.exp.get_data_loader(
+                batch_size=self.args.batch_size,
+                is_distributed=self.is_distributed,
+                cache_img=self.args.cache,
+            )
+            # 一轮的步数。
+            train_steps = self.exp.dataset.train_steps
+            # 一轮的图片数。
+            one_epoch_imgs = train_steps * self.args.batch_size
+            # 算出需要的训练轮数并写入。
+            self.exp.max_epoch = self.exp.kimgs * 1000 // one_epoch_imgs
+            if self.exp.kimgs * 1000 % one_epoch_imgs != 0:
+                self.exp.max_epoch += 1
+            self.max_epoch = self.exp.max_epoch
+
+            logger.info("init prefetcher, this might take one minute or less...")
+            self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
+
+            self.test_loader = self.exp.get_eval_loader(
+                batch_size=self.args.eval_batch_size,
+                is_distributed=self.is_distributed,
+            )
+
+            # max_iter means iters per epoch
+            self.max_iter = len(self.train_loader)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
