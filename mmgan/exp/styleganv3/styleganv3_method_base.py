@@ -122,11 +122,16 @@ class StyleGANv3_Method_Exp(BaseExp):
         # ---------------- dataset config ---------------- #
         self.dataroot = '../data/data42681/afhq/train/cat'
         # self.dataroot = '../data/data42681/afhq/train/dog'
+        len_phases = 2
+        if self.G_reg_interval is not None:
+            len_phases += 1
+        if self.D_reg_interval is not None:
+            len_phases += 1
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,
-            xflip=False,
-            len_phases=4,
+            xflip=True,
+            len_phases=len_phases,
         )
         self.dataset_test_cfg = dict(
             seeds=[85, 100, 75, 458, 1500],
