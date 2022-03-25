@@ -137,16 +137,17 @@ class StyleGANv3Model(torch.nn.Module):
     # 梯度累加（变相增大批大小）。dic2是为了梯度对齐。
     def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg, dic2=None):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
-        do_Gmain = (phase in ['Gmain', 'Gboth'])
-        do_Dmain = (phase in ['Dmain', 'Dboth'])
-        do_Gpl   = (phase in ['Greg', 'Gboth']) and (self.pl_weight != 0)
-        do_Dr1   = (phase in ['Dreg', 'Dboth']) and (self.r1_gamma != 0)
+        if self.pl_weight == 0:
+            phase = {'Greg': 'none', 'Gboth': 'Gmain'}.get(phase, phase)
+        if self.r1_gamma == 0:
+            phase = {'Dreg': 'none', 'Dboth': 'Dmain'}.get(phase, phase)
+        blur_sigma = max(1 - cur_nimg / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 0 else 0
 
         loss_numpy = {}
 
         # Gmain: Maximize logits for generated images.
-        if do_Gmain:
-            gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
+        if phase in ['Gmain', 'Gboth']:
+            gen_img, _gen_ws = self.run_G(gen_z, gen_c)
             # d_gen_ws_dgen_z = torch.autograd.grad(outputs=[_gen_ws.sum()], inputs=[gen_z], create_graph=True, only_inputs=True)[0]
             # aaaaaaaaaa0 = dic2[phase + 'd_gen_ws_dgen_z']
             # aaaaaaaaaa1 = d_gen_ws_dgen_z.cpu().detach().numpy()
@@ -159,7 +160,7 @@ class StyleGANv3Model(torch.nn.Module):
             # ddd = np.mean((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
 
-            gen_logits = self.run_D(gen_img, gen_c, sync=False)
+            gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
             # ddd = np.mean((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
 
@@ -172,8 +173,7 @@ class StyleGANv3Model(torch.nn.Module):
             loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
 
         # Gpl: Apply path length regularization.
-        if do_Gpl:
-            # print('----------------- do_Gpl -----------------')
+        if phase in ['Greg', 'Gboth']:
             batch_size = gen_z.shape[0] // self.pl_batch_shrink
             batch_size = max(batch_size, 1)
             # with misc.ddp_sync(self.G_flownet, sync):
@@ -184,7 +184,7 @@ class StyleGANv3Model(torch.nn.Module):
             if gen_c is not None:
                 gen_c_ = gen_c[:batch_size]
 
-            gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
+            gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_)
             # ddd = np.mean((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
             # ddd = np.mean((dic2[phase + 'gen_ws'] - gen_ws.cpu().detach().numpy()) ** 2)
@@ -206,19 +206,19 @@ class StyleGANv3Model(torch.nn.Module):
             pl_penalty = (pl_lengths - pl_mean).square()
             loss_Gpl = pl_penalty * self.pl_weight
 
-            loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
+            loss_Gpl = loss_Gpl.mean() * float(gain)
             loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
             loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
 
         # Dmain: Minimize logits for generated images.
         loss3 = 0.0
-        if do_Dmain:
-            gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=False)
+        if phase in ['Dmain', 'Dboth']:
+            gen_img, _gen_ws = self.run_G(gen_z, gen_c, update_emas=True)
             # ddd = np.mean((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
             # ddd = np.mean((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
-            gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
+            gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma, update_emas=True)
             # ddd = np.mean((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
 
@@ -232,23 +232,23 @@ class StyleGANv3Model(torch.nn.Module):
 
         # Dmain: Maximize logits for real images.
         # Dr1: Apply R1 regularization.
-        if do_Dmain or do_Dr1:
-            real_img_tmp = real_img.detach().requires_grad_(do_Dr1)
-            real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
+        if phase in ['Dmain', 'Dreg', 'Dboth']:
+            real_img_tmp = real_img.detach().requires_grad_(phase in ['Dreg', 'Dboth'])
+            real_logits = self.run_D(real_img_tmp, real_c, blur_sigma=blur_sigma)
             if self.adjust_p and self.augment_pipe is not None:
                 self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
             # ddd = np.mean((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
             # print('ddd=%.6f' % ddd)
 
             loss_Dreal = 0
-            if do_Dmain:
+            if phase in ['Dmain', 'Dboth']:
                 loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
                 # ddd = np.mean((dic2[phase + 'loss_Dreal'] - loss_Dreal.cpu().detach().numpy()) ** 2)
                 # print('ddd=%.6f' % ddd)
                 loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
 
             loss_Dr1 = 0
-            if do_Dr1:
+            if phase in ['Dreg', 'Dboth']:
                 r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
                 # ddd = np.mean((dic2[phase + 'r1_grads'] - r1_grads.cpu().detach().numpy()) ** 2)
                 # print('ddd=%.6f' % ddd)
