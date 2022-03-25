@@ -10,7 +10,7 @@ import math
 import scipy
 import scipy.signal
 
-from mmgan.models.generators.generator_styleganv2ada import upfirdn2d_setup_filter, conv2d_resample, bias_act, upsample2d, downsample2d, upfirdn2d
+from mmgan.models.generators.generator_styleganv2ada import bias_act, upfirdn2d
 
 
 def modulated_conv2d(
@@ -49,6 +49,17 @@ def modulated_conv2d(
     x = F.conv2d(input=x, weight=w.to(x.dtype), padding=padding, groups=batch_size)
     x = x.reshape(batch_size, -1, *x.shape[2:])
     return x
+
+def filter2d(x, f, padding=0, flip_filter=False, gain=1):
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+    fw, fh = _get_filter_size(f)
+    p = [
+        padx0 + fw // 2,
+        padx1 + (fw - 1) // 2,
+        pady0 + fh // 2,
+        pady1 + (fh - 1) // 2,
+    ]
+    return upfirdn2d(x, f, padding=p, flip_filter=flip_filter, gain=gain)
 
 
 class FullyConnectedLayer(nn.Module):

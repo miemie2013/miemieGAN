@@ -7,6 +7,7 @@ import numpy as np
 import sys
 
 from mmgan.models.generators.generator_styleganv2ada import constant
+from mmgan.models.generators.generator_styleganv3 import filter2d
 
 
 def soft_update(source, target, beta=1.0):
@@ -75,12 +76,16 @@ class StyleGANv3Model(torch.nn.Module):
 
         # loss config.
         self.augment_pipe = augment_pipe
-        # self.augment_pipe = None
         self.style_mixing_prob = style_mixing_prob
+        # self.augment_pipe = None
+        # self.style_mixing_prob = -1.0
         self.r1_gamma = r1_gamma
         self.pl_batch_shrink = pl_batch_shrink
         self.pl_decay = pl_decay
         self.pl_weight = pl_weight
+        self.pl_no_weight_grad = pl_no_weight_grad
+        self.blur_init_sigma = blur_init_sigma
+        self.blur_fade_kimg = blur_fade_kimg
 
         self.pl_mean = None
         self.ema_kimg = ema_kimg
@@ -109,32 +114,28 @@ class StyleGANv3Model(torch.nn.Module):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         pass
 
-    def _reset_grad(self, optims):
-        for optim in optims.values():
-            optim.zero_grad()
-
-    def run_G(self, z, c, sync):
-        # print('------------------ run_G -------------------')
-        # z.requires_grad_(True)
-        ws = self.mapping(z, c)
-        # self.style_mixing_prob = -1.0
+    def run_G(self, z, c, update_emas=False):
+        ws = self.mapping(z, c, update_emas=update_emas)
         if self.style_mixing_prob > 0:
             cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
             cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
-            ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
+            ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, update_emas=False)[:, cutoff:]
 
-        img = self.synthesis(ws)
+        img = self.synthesis(ws, update_emas=update_emas)
         return img, ws
 
-    def run_D(self, img, c, sync):
+    def run_D(self, img, c, blur_sigma=0, update_emas=False):
+        blur_size = np.floor(blur_sigma * 3)
+        if blur_size > 0:
+            f = torch.arange(-blur_size, blur_size + 1, device=img.device).div(blur_sigma).square().neg().exp2()
+            img = filter2d(img, f / f.sum())
         if self.augment_pipe is not None:
             img = self.augment_pipe(img)
-        logits = self.discriminator(img, c)
+        logits = self.discriminator(img, c, update_emas=update_emas)
         return logits
 
     # 梯度累加（变相增大批大小）。dic2是为了梯度对齐。
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain):
-    # def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain, dic2=None):
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg, dic2=None):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         do_Gmain = (phase in ['Gmain', 'Gboth'])
         do_Dmain = (phase in ['Dmain', 'Dboth'])
