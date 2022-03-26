@@ -95,6 +95,9 @@ class StyleGANv3Model(torch.nn.Module):
         self.adjust_p = adjust_p
         self.Loss_signs_real = []
 
+        self.align_grad = False
+        # self.align_grad = True
+
 
 
     def setup_input(self, input):

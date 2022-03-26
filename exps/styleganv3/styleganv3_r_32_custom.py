@@ -102,7 +102,7 @@ class Exp(StyleGANv3_Method_Exp):
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
-            r1_gamma=1.0,
+            r1_gamma=6.6,
             pl_batch_shrink=2,
             ema_kimg=-1,
             ema_rampup=None,

@@ -6,20 +6,20 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 
 梯度对齐：
-1.(原版仓库也要设置)设置 StyleGANv2ADAModel 的
+1.(原版仓库也要设置)设置 StyleGANv3Model 的
     self.augment_pipe = None
     self.style_mixing_prob = -1.0
-2.设置学习率与原版仓库相等
-3.(原版仓库也要设置)设置 SynthesisLayer 的
-    self.use_noise = False
-4.(原版仓库也要设置)设置 StyleGANv2ADA_SynthesisNetwork 的
-    use_fp16 = False
-5.(原版仓库也要设置)设置 StyleGANv2ADA_Discriminator 的
-    use_fp16 = False
-6.计算loss_Gpl那里，
+2.计算loss_Gpl那里，
 pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 改为
 pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+3.设置学习率与原版仓库相等
+4.(原版仓库也要设置)设置 SynthesisLayer 的
+    self.use_noise = False
+5.(原版仓库也要设置)设置 StyleGANv2ADA_SynthesisNetwork 的
+    use_fp16 = False
+6.(原版仓库也要设置)设置 StyleGANv2ADA_Discriminator 的
+    use_fp16 = False
 
 7.优化器要换成SGD：
                 optimizer = torch.optim.SGD(
@@ -31,11 +31,6 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
                 )
 因为Adam更新参数有一定随机性，同样的情况下，跑2次结果不同！！！（但是SGD也有轻微的不同，影响不大。）
 
-
-8.如果显存不足，借用一下11G的卡
-
-9.原版仓库先设置不让优化器更新参数，即注释掉phase.opt.step()，先对齐前20个step的输出；
-输出完全对齐后phase.opt.step()解除注释，再继续对齐。
 
 
 
