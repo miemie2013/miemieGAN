@@ -61,10 +61,15 @@ python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 1 -eb
 ----------------------- 转换权重 -----------------------
 python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c_G G_afhqv2_r_512.pth -c_Gema G_ema_afhqv2_r_512.pth -c_D D_afhqv2_r_512.pth -oc stylegan3_r_afhqv2_512.pth
 
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c_G G_metfaces_t_1024.pth -c_Gema G_ema_metfaces_t_1024.pth -c_D D_metfaces_t_1024.pth -oc stylegan3_t_metfaces_1024.pth
+
 
 
 ----------------------- 预测 -----------------------
 python tools/demo.py image -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+python tools/demo.py image -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
 
@@ -74,6 +79,9 @@ python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_r_512_afhqv2.py 
 
 (如果显存不足)
 python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --row_seeds 85 --col_seeds 55 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
+python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --row_seeds 85 --col_seeds 55 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 
@@ -99,6 +107,10 @@ python tools/train.py -f exps/styleganv3/styleganv3_r_128_custom.py -d 1 -b 1 -e
 
 
 python tools/train.py -f exps/styleganv3/styleganv3_r_256_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_afhqv2_512.pth
+
+
+
+python tools/train.py -f exps/styleganv3/styleganv3_t_256_custom.py -d 1 -b 2 -eb 1 -c stylegan3_t_metfaces_1024.pth
 
 
 
