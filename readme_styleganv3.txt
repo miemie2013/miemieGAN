@@ -9,6 +9,12 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 1.(原版仓库也要设置)设置 StyleGANv3Model 的
     self.augment_pipe = None
     self.style_mixing_prob = -1.0
+    self.align_grad = True
+解除上面语句的注释即可。
+以及，对下面所有的以if self.align_grad:开头的代码块解除注释
+if self.align_grad:
+    xxx
+
 2.计算loss_Gpl那里，
 pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 改为
