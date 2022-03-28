@@ -59,14 +59,18 @@ python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs
 
 
 ----------------------- 转换权重 -----------------------
-python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c_G G_afhqcat.pth -c_Gema G_ema_afhqcat.pth -c_D D_afhqcat.pth -oc styleganv2ada_512_afhqcat.pth
+python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c_Gema G_ema_afhqcat.pth -c_G G_afhqcat.pth -c_D D_afhqcat.pth -oc styleganv2ada_512_afhqcat.pth
+
+
+python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c_Gema G_ema_metfaces.pth -c_G G_metfaces.pth -c_D D_metfaces.pth -oc styleganv2ada_1024_metfaces.pth
+
+
+python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c_Gema G_ema_ffhq.pth -c_G G_ffhq.pth -c_D D_ffhq.pth -oc styleganv2ada_1024_ffhq.pth
+
 
 
 
 ----------------------- 预测 -----------------------
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
-
-
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c StyleGANv2ADA_outputs/styleganv2ada_512_afhqcat/1.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
@@ -74,16 +78,34 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c 
 
 
 
+(afhq)
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+(metfaces)
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_ffhq.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+
 ----------------------- style_mixing -----------------------
-python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
-
-
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/67.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
+(afhq)
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
+(metfaces)
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_ffhq.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 

@@ -26,8 +26,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        # self.basic_lr_per_img = 0.0025 / 64.0
-        self.basic_lr_per_img = 0.0025 / 16.0
+        self.basic_lr_per_img = 0.002 / 32.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -50,7 +49,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.w_dim = 512
         self.z_dim = 512
         self.c_dim = 0
-        self.img_resolution = 128
+        self.img_resolution = 1024
         self.img_channels = 3
         self.channel_base = 32768
         self.channel_max = 512
@@ -108,9 +107,9 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
-            r1_gamma=0.5,
+            r1_gamma=2.0,
             pl_batch_shrink=2,
-            ema_kimg=20,
+            ema_kimg=10,
             ema_rampup=None,
             augment_p=0.0,
             ada_kimg=100,
@@ -119,9 +118,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         )
 
         # ---------------- dataset config ---------------- #
-        # self.dataroot = '../data/data42681/afhq/train/cat'
-        # self.dataroot = '../data/data42681/afhq/train/dog_128'
-        self.dataroot = '../data/flowers_128'
+        self.dataroot = '../data/data123/xxx'
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,
