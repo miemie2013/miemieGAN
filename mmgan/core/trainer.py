@@ -151,10 +151,10 @@ class Trainer:
 
             for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
                 if reg_interval is None:
-                    pass
-                    # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
-                    #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
-                    # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
+                    if name == 'G':
+                        self.base_lr_G = learning_rate
+                    elif name == 'D':
+                        self.base_lr_D = learning_rate
                 else:  # Lazy regularization.
                     mb_ratio = reg_interval / (reg_interval + 1)
                     new_lr = learning_rate * mb_ratio

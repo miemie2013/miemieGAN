@@ -58,10 +58,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.phases = []
         for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
             if reg_interval is None:
-                # opt = dnnlib.util.construct_class_by_name(params=module.parameters(),
-                #                                           **opt_kwargs)  # subclass of torch.optim.Optimizer
-                # phases += [dnnlib.EasyDict(name=name + 'both', module=module, opt=opt, interval=1)]
-                pass
+                self.phases += [dict(name=name + 'both', interval=1)]
             else:  # Lazy regularization.
                 self.phases += [dict(name=name + 'main', interval=1)]
                 self.phases += [dict(name=name + 'reg', interval=reg_interval)]
