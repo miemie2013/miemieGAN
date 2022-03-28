@@ -9,19 +9,30 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 1.(原版仓库也要设置)设置 StyleGANv2ADAModel 的
     self.augment_pipe = None
     self.style_mixing_prob = -1.0
-2.设置学习率与原版仓库相等
+    self.align_grad = True
+解除上面语句的注释即可。
+以及，对下面所有的以if self.align_grad:开头的代码块解除注释
+if self.align_grad:
+    xxx
+
+计算loss_Gpl那里，
+pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+改为
+pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+
+2.trainer.py下面代码解除注释
+        # 对齐梯度用
+        # if (self.iter + 1) == 20:
+        #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+
 3.(原版仓库也要设置)设置 SynthesisLayer 的
     self.use_noise = False
 4.(原版仓库也要设置)设置 StyleGANv2ADA_SynthesisNetwork 的
     use_fp16 = False
 5.(原版仓库也要设置)设置 StyleGANv2ADA_Discriminator 的
     use_fp16 = False
-6.计算loss_Gpl那里，
-pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
-改为
-pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 
-7.优化器要换成SGD：
+6. styleganv2ada_method_base.py 优化器要换成SGD：
                 optimizer = torch.optim.SGD(
                     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.001, momentum=0.9
                 )
@@ -41,7 +52,7 @@ python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_32_00.pth
 
 
-python diff_weights.py
+python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs/styleganv2ada_32_custom/1.pth --d_value 0.0005
 
 
 

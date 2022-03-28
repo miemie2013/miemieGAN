@@ -37,7 +37,7 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
 5.不需要设置 StyleGANv3_Discriminator 的 （因为显存不够）
     use_fp16 = False
 
-6.优化器要换成SGD：
+6. styleganv3_method_base.py 优化器要换成SGD：
                 optimizer = torch.optim.SGD(
                     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.00001, momentum=0.9
                 )
@@ -57,7 +57,10 @@ python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_32_custom.py -c_
 python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_32_00.pth
 
 
-python diff_weights.py
+python diff_weights.py --cp1 stylegan3_r_32_19.pth --cp2 StyleGANv3_outputs/styleganv3_r_32_custom/1.pth --d_value 0.5
+
+
+python diff_weights.py --cp1 stylegan3_r_32_19.pth --cp2 stylegan3_r_32_00.pth --d_value 0.5
 
 
 
