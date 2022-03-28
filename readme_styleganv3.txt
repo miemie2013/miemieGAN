@@ -19,12 +19,15 @@ if self.align_grad:
 pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 改为
 pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
-3.设置学习率与原版仓库相等
+3.trainer.py下面代码解除注释
+        # 对齐梯度用
+        # if (self.iter + 1) == 20:
+        #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 4.(原版仓库也要设置)设置 SynthesisLayer 的
     self.use_noise = False
-5.(原版仓库也要设置)设置 StyleGANv3_SynthesisNetwork 的
+5.不需要设置 StyleGANv3_SynthesisNetwork 的 （因为显存不够）
     use_fp16 = False
-6.(原版仓库也要设置)设置 StyleGANv3_Discriminator 的
+6.不需要设置 StyleGANv3_Discriminator 的 （因为显存不够）
     use_fp16 = False
 
 7.优化器要换成SGD：
@@ -41,7 +44,13 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
 python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_32_custom.py -c_G G_00.pth -c_Gema G_ema_00.pth -c_D D_00.pth -oc stylegan3_r_32_00.pth
 
 
-python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 1 -eb 1 -c stylegan3_r_32_00.pth
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_32_custom.py -c_G G_19.pth -c_Gema G_ema_19.pth -c_D D_19.pth -oc stylegan3_r_32_19.pth
+
+
+python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_32_00.pth
+
+
+python diff_weights.py
 
 
 

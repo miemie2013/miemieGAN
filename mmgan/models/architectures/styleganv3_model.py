@@ -327,12 +327,15 @@ class StyleGANv3Model(torch.nn.Module):
             # Initialize gradient accumulation.  咩酱：初始化梯度累加（变相增大批大小）。
             if 'G' in phase['name']:
                 optimizers['optimizer_G'].zero_grad(set_to_none=True)
-                for param_group in optimizers['optimizer_G'].param_groups:
-                    param_group["params"][0].requires_grad = True
+                # for param_group in optimizers['optimizer_G'].param_groups:
+                #     param_group["params"][0].requires_grad = True
+                self.mapping.requires_grad_(True)
+                self.synthesis.requires_grad_(True)
             elif 'D' in phase['name']:
                 optimizers['optimizer_D'].zero_grad(set_to_none=True)
-                for param_group in optimizers['optimizer_D'].param_groups:
-                    param_group["params"][0].requires_grad = True
+                # for param_group in optimizers['optimizer_D'].param_groups:
+                #     param_group["params"][0].requires_grad = True
+                self.discriminator.requires_grad_(True)
 
             # 梯度累加。一个总的批次的图片分开{显卡数量}次遍历。
             # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
@@ -356,12 +359,15 @@ class StyleGANv3Model(torch.nn.Module):
             #     if param.grad is not None:
             #         misc.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
             if 'G' in phase['name']:
-                for param_group in optimizers['optimizer_G'].param_groups:
-                    param_group["params"][0].requires_grad = False
+                # for param_group in optimizers['optimizer_G'].param_groups:
+                #     param_group["params"][0].requires_grad = False
+                self.mapping.requires_grad_(False)
+                self.synthesis.requires_grad_(False)
                 optimizers['optimizer_G'].step()  # 更新参数
             elif 'D' in phase['name']:
-                for param_group in optimizers['optimizer_D'].param_groups:
-                    param_group["params"][0].requires_grad = False
+                # for param_group in optimizers['optimizer_D'].param_groups:
+                #     param_group["params"][0].requires_grad = False
+                self.discriminator.requires_grad_(False)
                 optimizers['optimizer_D'].step()  # 更新参数
 
         # compute moving average of network parameters。指数滑动平均

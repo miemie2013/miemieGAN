@@ -423,6 +423,9 @@ class Trainer:
             self.model.eval()
             self.stylegan_generate_imgs()
             self.model.train()
+        # 对齐梯度用
+        # if (self.iter + 1) == 20:
+        #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
     @property
     def progress_in_iter(self):
