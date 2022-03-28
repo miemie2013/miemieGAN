@@ -23,6 +23,15 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
         # 对齐梯度用
         # if (self.iter + 1) == 20:
         #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+需要注释掉下面的代码：
+            if resume:
+                # 需要修改配置
+                model.ada_kimg = 100        # Make ADA react faster at the beginning.
+                model.ema_rampup = None     # Disable EMA rampup.
+                model.blur_init_sigma = 0   # Disable blur rampup.
+因为stylegan3-m2仓库是随机初始化的权重，没有resume权重。
+
+
 4.(原版仓库也要设置)设置 SynthesisLayer 的
     self.use_noise = False
 5.不需要设置 StyleGANv3_SynthesisNetwork 的 （因为显存不够）
