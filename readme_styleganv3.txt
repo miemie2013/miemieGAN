@@ -32,14 +32,12 @@ pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3
 因为stylegan3-m2仓库是随机初始化的权重，没有resume权重。
 
 
-4.(原版仓库也要设置)设置 SynthesisLayer 的
-    self.use_noise = False
-5.不需要设置 StyleGANv3_SynthesisNetwork 的 （因为显存不够）
+4.不需要设置 StyleGANv3_SynthesisNetwork 的 （因为显存不够）
     use_fp16 = False
-6.不需要设置 StyleGANv3_Discriminator 的 （因为显存不够）
+5.不需要设置 StyleGANv3_Discriminator 的 （因为显存不够）
     use_fp16 = False
 
-7.优化器要换成SGD：
+6.优化器要换成SGD：
                 optimizer = torch.optim.SGD(
                     itertools.chain(self.model.synthesis.parameters(), self.model.mapping.parameters()), lr=0.00001, momentum=0.9
                 )
