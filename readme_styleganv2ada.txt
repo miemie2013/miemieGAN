@@ -170,6 +170,15 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d
 
 
 
+----------------------- 计算指标 -----------------------
+(afhq)
+python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+(afhq)
+python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+
 
 ----------------------- 导出为ONNX -----------------------
 
