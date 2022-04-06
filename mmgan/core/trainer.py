@@ -104,8 +104,12 @@ class Trainer:
             data_end_time = time.time()
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
-            self.model.setup_input(data)
-            outputs = self.model.train_iter(self.optimizers)
+            if self.is_distributed:
+                self.model.module.setup_input(data)
+                outputs = self.model.module.train_iter(self.optimizers)
+            else:
+                self.model.setup_input(data)
+                outputs = self.model.train_iter(self.optimizers)
 
             iter_end_time = time.time()
             # 删去所有loss的键值对，避免打印loss时出现None错误。
@@ -309,7 +313,15 @@ class Trainer:
 
         logger.info("Training start...")
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
-            for name, module in [('synthesis', model.synthesis), ('mapping', model.mapping), ('discriminator', model.discriminator)]:
+            if self.is_distributed:
+                synthesis = model.module.synthesis
+                mapping = model.module.mapping
+                discriminator = model.module.discriminator
+            else:
+                synthesis = model.synthesis
+                mapping = model.mapping
+                discriminator = model.discriminator
+            for name, module in [('synthesis', synthesis), ('mapping', mapping), ('discriminator', discriminator)]:
                 trainable_params = 0
                 nontrainable_params = 0
                 for name_, param_ in module.named_parameters():
@@ -371,13 +383,17 @@ class Trainer:
             self.model.train()
 
     def stylegan_generate_imgs(self):
+        if self.is_distributed:
+            model = self.model.module
+        else:
+            model = self.model
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             for seed_idx, data in enumerate(self.test_loader):
                 for k, v in data.items():
                     data[k] = v.cuda()
-                self.model.setup_input(data)
+                model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr = self.model.test_iter()
+                    img_bgr = model.test_iter()
                     save_folder = os.path.join(self.file_name, 'snapshot_imgs')
                     os.makedirs(save_folder, exist_ok=True)
                     save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seedidx{seed_idx:08d}.png')
@@ -424,8 +440,9 @@ class Trainer:
             self.stylegan_generate_imgs()
             self.model.train()
         # 对齐梯度用
-        # if (self.iter + 1) == 20:
-        #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+        # if self.rank == 0:
+        #     if (self.iter + 1) == 20:
+        #         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
     @property
     def progress_in_iter(self):
