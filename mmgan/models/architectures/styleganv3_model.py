@@ -53,8 +53,13 @@ class StyleGANv3Model(torch.nn.Module):
         self.synthesis_ema = synthesis_ema
         self.mapping = mapping
         self.mapping_ema = mapping_ema
+        self.synthesis.train()
+        self.mapping.train()
+        self.synthesis_ema.eval()
+        self.mapping_ema.eval()
         if discriminator:
             self.discriminator = discriminator
+            self.discriminator.train()
         self.c_dim = mapping.c_dim
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim

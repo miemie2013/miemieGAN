@@ -105,11 +105,12 @@ class Trainer:
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             if self.is_distributed:
-                self.model.module.setup_input(data)
-                outputs = self.model.module.train_iter(self.optimizers)
+                model = self.model.module
             else:
-                self.model.setup_input(data)
-                outputs = self.model.train_iter(self.optimizers)
+                model = self.model
+            model.setup_input(data)
+            outputs = model.train_iter(self.optimizers)
+
 
             iter_end_time = time.time()
             # 删去所有loss的键值对，避免打印loss时出现None错误。
@@ -139,7 +140,6 @@ class Trainer:
             model = self.exp.get_model(self.args.batch_size)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
-        # logger.info("Model Summary: {}".format(get_model_info(self.archi_name, model, self.exp.test_size)))
         model.to(self.device)
 
         # 是否进行梯度裁剪
@@ -209,6 +209,14 @@ class Trainer:
 
             # max_iter means iters per epoch
             self.max_iter = len(self.train_loader)
+
+            if self.args.occupy:
+                occupy_mem(self.local_rank)
+
+            if self.is_distributed:
+                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False)
+                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False)
         elif self.archi_name == 'StyleGANv3':
             learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
             learning_rate_d = self.exp.basic_dlr_per_img * self.args.batch_size
@@ -291,17 +299,18 @@ class Trainer:
 
             # max_iter means iters per epoch
             self.max_iter = len(self.train_loader)
+
+            if self.args.occupy:
+                occupy_mem(self.local_rank)
+
+            if self.is_distributed:
+                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False)
+                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
-        if self.args.occupy:
-            occupy_mem(self.local_rank)
-
-        if self.is_distributed:
-            model = DDP(model, device_ids=[self.local_rank], broadcast_buffers=False)
-
         self.model = model
-        self.model.train()
 
         self.evaluator = self.exp.get_evaluator(
             batch_size=self.args.eval_batch_size, is_distributed=self.is_distributed
@@ -378,9 +387,7 @@ class Trainer:
         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
-            self.model.eval()
             self.stylegan_generate_imgs()
-            self.model.train()
 
     def stylegan_generate_imgs(self):
         if self.is_distributed:
@@ -436,9 +443,7 @@ class Trainer:
             logger.info(log_msg)
             self.meter.clear_meters()
         if (self.iter + 1) % self.exp.temp_img_interval == 0:
-            self.model.eval()
             self.stylegan_generate_imgs()
-            self.model.train()
         # 对齐梯度用
         # if self.rank == 0:
         #     if (self.iter + 1) == 20:
