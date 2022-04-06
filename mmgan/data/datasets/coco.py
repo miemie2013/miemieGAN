@@ -610,6 +610,7 @@ class StyleGANv2ADATestDataset(torch.utils.data.Dataset):
         z = np.random.RandomState(seed).randn(self.z_dim, )
         datas = {
             'z': z,
+            'seed': seed,
         }
         return datas
 

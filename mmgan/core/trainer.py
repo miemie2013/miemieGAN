@@ -393,10 +393,10 @@ class Trainer:
                     data[k] = v.cuda()
                 model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr = model.test_iter()
+                    img_bgr, seed = model.test_iter()
                     save_folder = os.path.join(self.file_name, 'snapshot_imgs')
                     os.makedirs(save_folder, exist_ok=True)
-                    save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seedidx{seed_idx:08d}.png')
+                    save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seed{seed:08d}.png')
                     logger.info("Saving generation result in {}".format(save_file_name))
                     cv2.imwrite(save_file_name, img_bgr)
         else:

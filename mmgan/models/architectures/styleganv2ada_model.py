@@ -388,6 +388,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
     def test_iter(self, metrics=None):
         z = self.input['z']
+        seed = self.input['seed']
+        seed = seed.cpu().detach().numpy()[0]
 
         class_idx = None
         label = torch.zeros([1, self.c_dim], device=z.device)
@@ -410,7 +412,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         img = img.to(torch.uint8)
         img_rgb = img.cpu().detach().numpy()[0]
         img_bgr = img_rgb[:, :, [2, 1, 0]]
-        return img_bgr
+        return img_bgr, seed
 
     def style_mixing(self, row_seeds, col_seeds, all_seeds, col_styles):
         all_z = self.input['z']
