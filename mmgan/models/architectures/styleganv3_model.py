@@ -79,7 +79,6 @@ class StyleGANv3Model(torch.nn.Module):
         # loss config.
         self.augment_pipe = augment_pipe
         self.style_mixing_prob = style_mixing_prob
-        # self.augment_pipe = None
         # self.style_mixing_prob = -1.0
         self.r1_gamma = r1_gamma
         self.pl_batch_shrink = pl_batch_shrink
@@ -136,6 +135,8 @@ class StyleGANv3Model(torch.nn.Module):
             img = filter2d(img, f / f.sum())
         if self.augment_pipe is not None:
             img = self.augment_pipe(img)
+            # debug_percentile = 0.7
+            # img = self.augment_pipe(img, debug_percentile)
         logits = self.discriminator(img, c, update_emas=update_emas)
         return logits
 

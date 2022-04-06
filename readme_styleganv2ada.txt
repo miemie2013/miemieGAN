@@ -7,7 +7,6 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 梯度对齐：
 1.(原版仓库也要设置)设置 StyleGANv2ADAModel 的
-    self.augment_pipe = None
     self.style_mixing_prob = -1.0
     self.align_grad = True
 解除上面语句的注释即可。
@@ -19,6 +18,13 @@ if self.align_grad:
 pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
 改为
 pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+
+run_D()方法中，注释掉：
+            img = self.augment_pipe(img)
+解除注释：
+            # debug_percentile = 0.7
+            # img = self.augment_pipe(img, debug_percentile)
+
 
 2.trainer.py下面代码解除注释
         # 对齐梯度用
