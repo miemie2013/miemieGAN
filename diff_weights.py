@@ -35,6 +35,8 @@ if __name__ == "__main__":
     for key in ['synthesis', 'synthesis_ema', 'mapping', 'mapping_ema', 'discriminator']:
         aa = aaa[key]
         for key2, value1 in aa.items():
+            if '_ema' in key:
+                key2 = key2 + ' ema'
             state_dict1_pytorch[key2] = value1
 
     ckpt_file2 = args.cp2
@@ -43,6 +45,8 @@ if __name__ == "__main__":
     for key in ['synthesis', 'synthesis_ema', 'mapping', 'mapping_ema', 'discriminator']:
         aa = aaa[key]
         for key2, value1 in aa.items():
+            if '_ema' in key:
+                key2 = key2 + ' ema'
             state_dict2_pytorch[key2] = value1
 
     d_value = args.d_value
