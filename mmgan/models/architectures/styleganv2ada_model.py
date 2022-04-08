@@ -409,7 +409,11 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.batch_idx += 1
 
         if self.align_grad:
-            ddd = np.sum((dic2['w_avg'] - self.mapping.w_avg.cpu().detach().numpy()) ** 2)
+            if self.is_distributed:
+                w_avg = self.mapping.module.w_avg
+            else:
+                w_avg = self.mapping.w_avg
+            ddd = np.sum((dic2['w_avg'] - w_avg.cpu().detach().numpy()) ** 2)
             print('w_avg ddd=%.6f' % ddd)
 
         # Execute ADA heuristic.
