@@ -104,12 +104,8 @@ class Trainer:
             data_end_time = time.time()
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
-            if self.is_distributed:
-                model = self.model.module
-            else:
-                model = self.model
-            model.setup_input(data)
-            outputs = model.train_iter(self.optimizers, self.rank)
+            self.model.setup_input(data)
+            outputs = self.model.train_iter(self.optimizers, self.rank)
 
 
             iter_end_time = time.time()
@@ -215,11 +211,21 @@ class Trainer:
 
             if self.is_distributed:
                 # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+                model.mapping.requires_grad_(True)
+                model.synthesis.requires_grad_(True)
+                model.discriminator.requires_grad_(True)
+                model.mapping_ema.requires_grad_(True)
+                model.synthesis_ema.requires_grad_(True)
                 model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping.requires_grad_(False)
+                model.synthesis.requires_grad_(False)
+                model.discriminator.requires_grad_(False)
+                model.mapping_ema.requires_grad_(False)
+                model.synthesis_ema.requires_grad_(False)
             model.is_distributed = self.is_distributed
         elif self.archi_name == 'StyleGANv3':
             learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
@@ -309,11 +315,21 @@ class Trainer:
 
             if self.is_distributed:
                 # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+                model.mapping.requires_grad_(True)
+                model.synthesis.requires_grad_(True)
+                model.discriminator.requires_grad_(True)
+                model.mapping_ema.requires_grad_(True)
+                model.synthesis_ema.requires_grad_(True)
                 model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
                 model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping.requires_grad_(False)
+                model.synthesis.requires_grad_(False)
+                model.discriminator.requires_grad_(False)
+                model.mapping_ema.requires_grad_(False)
+                model.synthesis_ema.requires_grad_(False)
             model.is_distributed = self.is_distributed
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
@@ -330,15 +346,7 @@ class Trainer:
 
         logger.info("Training start...")
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
-            if self.is_distributed:
-                synthesis = model.module.synthesis
-                mapping = model.module.mapping
-                discriminator = model.module.discriminator
-            else:
-                synthesis = model.synthesis
-                mapping = model.mapping
-                discriminator = model.discriminator
-            for name, module in [('synthesis', synthesis), ('mapping', mapping), ('discriminator', discriminator)]:
+            for name, module in [('synthesis', model.synthesis), ('mapping', model.mapping), ('discriminator', model.discriminator)]:
                 trainable_params = 0
                 nontrainable_params = 0
                 for name_, param_ in module.named_parameters():
