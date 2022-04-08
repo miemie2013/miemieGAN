@@ -25,11 +25,6 @@ run_D()方法中，注释掉：
             # debug_percentile = 0.7
             # img = self.augment_pipe(img, debug_percentile)
 
-解除注释：
-            # print(self.augment_pipe.p)
-            # print(Loss_signs_real_mean)
-            # print('==========================')
-
 
 2.trainer.py下面代码解除注释
         # 对齐梯度用

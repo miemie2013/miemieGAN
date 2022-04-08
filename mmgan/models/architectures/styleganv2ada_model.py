@@ -408,15 +408,21 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.cur_nimg += batch_size
         self.batch_idx += 1
 
+        if self.align_grad:
+            ddd = np.sum((dic2['w_avg'] - self.mapping.w_avg.cpu().detach().numpy()) ** 2)
+            print('w_avg ddd=%.6f' % ddd)
+
         # Execute ADA heuristic.
         if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
             # self.ada_interval个迭代中，real_logits.sign()的平均值。
             Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
             diff = Loss_signs_real_mean - self.ada_target
             adjust = np.sign(diff)
-            print(self.augment_pipe.p)
-            print(Loss_signs_real_mean)
-            print('==========================')
+            if self.align_grad:
+                ddd = np.sum((dic2['augment_pipe_p'] - self.augment_pipe.p.cpu().detach().numpy()) ** 2)
+                print('augment_pipe_p ddd=%.6f' % ddd)
+                ddd = np.sum((dic2['aaaaaaaaaa1'] - np.array(Loss_signs_real_mean)) ** 2)
+                print('aaaaaaaaaa1 ddd=%.6f' % ddd)
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=self.augment_pipe.p.device)))
             self.Loss_signs_real = []
