@@ -109,7 +109,7 @@ class Trainer:
             else:
                 model = self.model
             model.setup_input(data)
-            outputs = model.train_iter(self.optimizers)
+            outputs = model.train_iter(self.optimizers, self.rank)
 
 
             iter_end_time = time.time()
@@ -214,9 +214,13 @@ class Trainer:
                 occupy_mem(self.local_rank)
 
             if self.is_distributed:
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False)
+                # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+            model.is_distributed = self.is_distributed
         elif self.archi_name == 'StyleGANv3':
             learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
             learning_rate_d = self.exp.basic_dlr_per_img * self.args.batch_size
@@ -304,9 +308,13 @@ class Trainer:
                 occupy_mem(self.local_rank)
 
             if self.is_distributed:
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False)
+                # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+            model.is_distributed = self.is_distributed
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -445,9 +453,9 @@ class Trainer:
         if (self.iter + 1) % self.exp.temp_img_interval == 0:
             self.stylegan_generate_imgs()
         # 对齐梯度用
-        # if self.rank == 0:
-        #     if (self.iter + 1) == 20:
-        #         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+        if self.rank == 0:
+            if (self.iter + 1) == 20:
+                self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
     @property
     def progress_in_iter(self):

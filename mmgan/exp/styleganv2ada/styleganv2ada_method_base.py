@@ -151,10 +151,6 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             self.mapping['num_ws'] = synthesis.num_ws
             mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
             mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
-            for name, param in synthesis_ema.named_parameters():
-                param.requires_grad = False
-            for name, param in mapping_ema.named_parameters():
-                param.requires_grad = False
             discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
             augment_pipe = None
             adjust_p = False  # 是否调整augment_pipe的p
@@ -163,6 +159,13 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                 augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
                 if self.model_cfg['ada_target'] is not None:
                     adjust_p = True
+
+            # 第三方实现stylegan2-ada时，不要忘记创建G和D的实例时，都需要设置其的requires_grad_(False)，因为第0步训练Gmain阶段时，D的权重应该不允许得到梯度。
+            synthesis.requires_grad_(False)
+            synthesis_ema.requires_grad_(False)
+            mapping.requires_grad_(False)
+            mapping_ema.requires_grad_(False)
+            discriminator.requires_grad_(False)
             self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
                                             discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
@@ -224,7 +227,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
     def get_optimizer(self, lr, name):
         if name == 'G':
             if "optimizer_G" not in self.__dict__:
-                # lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
+                lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.synthesis.named_parameters():
                     freeze = False
@@ -242,19 +245,19 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                     params0 = {'params': [param]}
                     params0['lr'] = lr
                     param_groups.append(params0)
-                optimizer = torch.optim.Adam(
-                    param_groups, lr=lr,
-                    betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
-                    eps=self.optimizer_cfg['generator']['epsilon']
-                )
-                # optimizer = torch.optim.SGD(
-                #     param_groups, lr=lr, momentum=0.9
+                # optimizer = torch.optim.Adam(
+                #     param_groups, lr=lr,
+                #     betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
+                #     eps=self.optimizer_cfg['generator']['epsilon']
                 # )
+                optimizer = torch.optim.SGD(
+                    param_groups, lr=lr, momentum=0.9
+                )
                 self.optimizer_G = optimizer
             return self.optimizer_G
         elif name == 'D':
             if "optimizer_D" not in self.__dict__:
-                # lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
+                lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.discriminator.named_parameters():
                     freeze = False
@@ -268,14 +271,14 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                         param_groups.append(params0)
                     else:
                         param.requires_grad = False
-                optimizer = torch.optim.Adam(
-                    param_groups, lr=lr,
-                    betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
-                    eps=self.optimizer_cfg['discriminator']['epsilon']
-                )
-                # optimizer = torch.optim.SGD(
-                #     param_groups, lr=lr, momentum=0.9
+                # optimizer = torch.optim.Adam(
+                #     param_groups, lr=lr,
+                #     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
+                #     eps=self.optimizer_cfg['discriminator']['epsilon']
                 # )
+                optimizer = torch.optim.SGD(
+                    param_groups, lr=lr, momentum=0.9
+                )
                 self.optimizer_D = optimizer
             return self.optimizer_D
 

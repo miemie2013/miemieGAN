@@ -172,8 +172,15 @@ class StyleGANv3_Method_Exp(BaseExp):
                 augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
                 if self.model_cfg['ada_target'] is not None:
                     adjust_p = True
+
+            # 第三方实现stylegan3时，不要忘记创建G和D的实例时，都需要设置其的requires_grad_(False)，因为第0步训练Gmain阶段时，D的权重应该不允许得到梯度。
+            synthesis.requires_grad_(False)
+            synthesis_ema.requires_grad_(False)
+            mapping.requires_grad_(False)
+            mapping_ema.requires_grad_(False)
+            discriminator.requires_grad_(False)
             self.model = StyleGANv3Model(synthesis, synthesis_ema, mapping, mapping_ema,
-                                            discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
+                                         discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 
     def get_data_loader(

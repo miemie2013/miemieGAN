@@ -613,7 +613,7 @@ class SynthesisLayer(nn.Module):
         self.resolution = resolution
         self.up = up
         self.use_noise = use_noise
-        # self.use_noise = False
+        self.use_noise = False
         self.activation = activation
         self.conv_clamp = conv_clamp
         self.register_buffer('resample_filter', upfirdn2d_setup_filter(resample_filter))
@@ -787,7 +787,7 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
             in_channels = channels_dict[res // 2] if res > 4 else 0
             out_channels = channels_dict[res]
             use_fp16 = (res >= fp16_resolution)
-            # use_fp16 = False
+            use_fp16 = False
             is_last = (res == self.img_resolution)
             block = SynthesisBlock(in_channels, out_channels, w_dim=w_dim, resolution=res,
                 img_channels=img_channels, is_last=is_last, use_fp16=use_fp16, **block_kwargs)

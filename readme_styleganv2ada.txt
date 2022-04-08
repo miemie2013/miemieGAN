@@ -25,11 +25,17 @@ run_D()方法中，注释掉：
             # debug_percentile = 0.7
             # img = self.augment_pipe(img, debug_percentile)
 
+解除注释：
+            # print(self.augment_pipe.p)
+            # print(Loss_signs_real_mean)
+            # print('==========================')
+
 
 2.trainer.py下面代码解除注释
         # 对齐梯度用
-        # if (self.iter + 1) == 20:
-        #     self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+        # if self.rank == 0:
+        #     if (self.iter + 1) == 20:
+        #         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
 3.(原版仓库也要设置)设置 SynthesisLayer 的
     self.use_noise = False
@@ -49,6 +55,14 @@ run_D()方法中，注释掉：
 因为Adam更新参数有一定随机性，同样的情况下，跑2次结果不同！！！（但是SGD也有轻微的不同，影响不大。）
 
 
+第三方实现stylegan2-ada时，不要忘记创建G和D的实例时，都需要设置其的requires_grad_(False)
+    G = dnnlib.util.construct_class_by_name(**G_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
+    D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
+因为第0步训练Gmain阶段时，D的权重应该不允许得到梯度。
+而且，除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+
+
+
 python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -c_G G_00.pth -c_Gema G_ema_00.pth -c_D D_00.pth -oc styleganv2ada_32_00.pth
 
 
@@ -56,10 +70,10 @@ python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py
 
 
 CUDA_VISIBLE_DEVICES=0
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_32_00.pth
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 1 -b 8 -eb 1 -c styleganv2ada_32_00.pth
 
 CUDA_VISIBLE_DEVICES=0,1
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 2 -b 6 -eb 2 -c styleganv2ada_32_00.pth
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 2 -b 8 -eb 2 -c styleganv2ada_32_00.pth
 
 
 

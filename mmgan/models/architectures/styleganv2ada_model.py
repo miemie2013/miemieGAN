@@ -5,9 +5,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import sys
+import contextlib
 
 from mmgan.models.generators.generator_styleganv2ada import constant
 
+@contextlib.contextmanager
+def ddp_sync(module, sync, is_distributed):
+    if sync or not is_distributed:
+        yield
+    else:
+        with module.no_sync():
+            yield
 
 def soft_update(source, target, beta=1.0):
     assert 0.0 <= beta <= 1.0
@@ -75,7 +83,7 @@ class StyleGANv2ADAModel(torch.nn.Module):
         # loss config.
         self.augment_pipe = augment_pipe
         self.style_mixing_prob = style_mixing_prob
-        # self.style_mixing_prob = -1.0
+        self.style_mixing_prob = -1.0
         self.r1_gamma = r1_gamma
         self.pl_batch_shrink = pl_batch_shrink
         self.pl_decay = pl_decay
@@ -93,7 +101,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
         self.Loss_signs_real = []
 
         self.align_grad = False
-        # self.align_grad = True
+        self.align_grad = True
+
+        self.is_distributed = False
 
 
 
@@ -112,21 +122,32 @@ class StyleGANv2ADAModel(torch.nn.Module):
         pass
 
     def run_G(self, z, c, sync):
-        ws = self.mapping(z, c)
-        if self.style_mixing_prob > 0:
-            cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
-            cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
-            ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
+        '''
+        除了self.augment_pipe，其它3个 self.G_mapping、self.G_synthesis、self.D 都是DDP模型。
+        只有DDP模型才能使用with module.no_sync():
+        '''
+        with ddp_sync(self.mapping, sync, self.is_distributed):
+            ws = self.mapping(z, c)
+            if self.style_mixing_prob > 0:
+                cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
+                cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
+                ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
 
-        img = self.synthesis(ws)
+        with ddp_sync(self.synthesis, sync, self.is_distributed):
+            img = self.synthesis(ws)
         return img, ws
 
     def run_D(self, img, c, sync):
+        '''
+        除了self.augment_pipe，其它3个 self.G_mapping、self.G_synthesis、self.D 都是DDP模型。
+        只有DDP模型才能使用with module.no_sync():
+        '''
         if self.augment_pipe is not None:
-            img = self.augment_pipe(img)
-            # debug_percentile = 0.7
-            # img = self.augment_pipe(img, debug_percentile)
-        logits = self.discriminator(img, c)
+            # img = self.augment_pipe(img)
+            debug_percentile = 0.7
+            img = self.augment_pipe(img, debug_percentile)
+        with ddp_sync(self.discriminator, sync, self.is_distributed):
+            logits = self.discriminator(img, c)
         return logits
 
     # 梯度累加（变相增大批大小）。dic2是为了梯度对齐。
@@ -141,17 +162,19 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
         # Gmain: Maximize logits for generated images.
         if do_Gmain:
+            # 训练生成器，判别器应该冻结，而且希望fake_img的gen_logits越大越好（愚弄D，使其判断是真图片），所以损失是-log(sigmoid(gen_logits))
+            # 每个step都做1次
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-            #     print('do_Gmain gen_img=%.6f' % ddd)
-            #     ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
-            #     print('do_Gmain _gen_ws=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+                print('do_Gmain gen_img=%.6f' % ddd)
+                ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
+                print('do_Gmain _gen_ws=%.6f' % ddd)
 
             gen_logits = self.run_D(gen_img, gen_c, sync=False)
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
-            #     print('do_Gmain gen_logits=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
+                print('do_Gmain gen_logits=%.6f' % ddd)
 
             loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
             loss_Gmain = loss_Gmain.mean()
@@ -163,6 +186,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
 
         # Gpl: Apply path length regularization.
         if do_Gpl:
+            # 训练生成器，判别器应该冻结（其实也没有跑判别器），是生成器的梯度惩罚损失（一种高级一点的梯度裁剪）
+            # 每4个step做1次
             batch_size = gen_z.shape[0] // self.pl_batch_shrink
             batch_size = max(batch_size, 1)
 
@@ -171,21 +196,21 @@ class StyleGANv2ADAModel(torch.nn.Module):
                 gen_c_ = gen_c[:batch_size]
 
             gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-            #     print('do_Gpl gen_img=%.6f' % ddd)
-            #     ddd = np.sum((dic2[phase + 'gen_ws'] - gen_ws.cpu().detach().numpy()) ** 2)
-            #     print('do_Gpl gen_ws=%.6f' % ddd)
-            pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
-            # pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+                print('do_Gpl gen_img=%.6f' % ddd)
+                ddd = np.sum((dic2[phase + 'gen_ws'] - gen_ws.cpu().detach().numpy()) ** 2)
+                print('do_Gpl gen_ws=%.6f' % ddd)
+            # pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+            pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
             pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True, only_inputs=True)[0]
 
             pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'pl_grads'] - pl_grads.cpu().detach().numpy()) ** 2)
-            #     print('do_Gpl pl_grads=%.6f' % ddd)
-            #     ddd = np.sum((dic2[phase + 'pl_lengths'] - pl_lengths.cpu().detach().numpy()) ** 2)
-            #     print('do_Gpl pl_lengths=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'pl_grads'] - pl_grads.cpu().detach().numpy()) ** 2)
+                print('do_Gpl pl_grads=%.6f' % ddd)
+                ddd = np.sum((dic2[phase + 'pl_lengths'] - pl_lengths.cpu().detach().numpy()) ** 2)
+                print('do_Gpl pl_lengths=%.6f' % ddd)
             if self.pl_mean is None:
                 self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=pl_lengths.device)
             pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
@@ -199,18 +224,19 @@ class StyleGANv2ADAModel(torch.nn.Module):
             loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
 
         # Dmain: Minimize logits for generated images.
-        loss3 = 0.0
         if do_Dmain:
+            # 训练判别器，生成器应该冻结，而且希望fake_img的gen_logits越小越好（判断是假图片），所以损失是-log(1 - sigmoid(gen_logits))
+            # 每个step都做1次
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=False)
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-            #     print('do_Dmain gen_img=%.6f' % ddd)
-            #     ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
-            #     print('do_Dmain _gen_ws=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
+                print('do_Dmain gen_img=%.6f' % ddd)
+                ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
+                print('do_Dmain _gen_ws=%.6f' % ddd)
             gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
-            #     print('do_Dmain gen_logits=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
+                print('do_Dmain gen_logits=%.6f' % ddd)
 
             loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
             # loss_Dgen.mean().mul(gain).backward()
@@ -227,28 +253,32 @@ class StyleGANv2ADAModel(torch.nn.Module):
             real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
             if self.adjust_p and self.augment_pipe is not None:
                 self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
-            # if self.align_grad:
-            #     ddd = np.sum((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
-            #     print('do_Dmain or do_Dr1 real_logits=%.6f' % ddd)
+            if self.align_grad:
+                ddd = np.sum((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
+                print('do_Dmain or do_Dr1 real_logits=%.6f' % ddd)
 
             loss_Dreal = 0
             if do_Dmain:
+                # 训练判别器，生成器应该冻结，而且希望real_img的gen_logits越大越好（判断是真图片），所以损失是-log(sigmoid(real_logits))
+                # 每个step都做1次
                 loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
-                # if self.align_grad:
-                #     ddd = np.sum((dic2[phase + 'loss_Dreal'] - loss_Dreal.cpu().detach().numpy()) ** 2)
-                #     print('do_Dmain or do_Dr1 do_Dmain loss_Dreal=%.6f' % ddd)
+                if self.align_grad:
+                    ddd = np.sum((dic2[phase + 'loss_Dreal'] - loss_Dreal.cpu().detach().numpy()) ** 2)
+                    print('do_Dmain or do_Dr1 do_Dmain loss_Dreal=%.6f' % ddd)
                 loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
 
             loss_Dr1 = 0
             if do_Dr1:
+                # 训练判别器，生成器应该冻结（其实也没有跑判别器），是判别器的梯度惩罚损失（一种高级一点的梯度裁剪）
+                # 每16个step做1次
                 r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
-                # if self.align_grad:
-                #     ddd = np.sum((dic2[phase + 'r1_grads'] - r1_grads.cpu().detach().numpy()) ** 2)
-                #     print('do_Dmain or do_Dr1 do_Dr1 r1_grads=%.6f' % ddd)
+                if self.align_grad:
+                    ddd = np.sum((dic2[phase + 'r1_grads'] - r1_grads.cpu().detach().numpy()) ** 2)
+                    print('do_Dmain or do_Dr1 do_Dr1 r1_grads=%.6f' % ddd)
                 r1_penalty = r1_grads.square().sum([1, 2, 3])
-                # if self.align_grad:
-                #     ddd = np.sum((dic2[phase + 'r1_penalty'] - r1_penalty.cpu().detach().numpy()) ** 2)
-                #     print('do_Dmain or do_Dr1 do_Dr1 r1_penalty=%.6f' % ddd)
+                if self.align_grad:
+                    ddd = np.sum((dic2[phase + 'r1_penalty'] - r1_penalty.cpu().detach().numpy()) ** 2)
+                    print('do_Dmain or do_Dr1 do_Dr1 r1_penalty=%.6f' % ddd)
                 loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                 loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
 
@@ -258,22 +288,22 @@ class StyleGANv2ADAModel(torch.nn.Module):
             loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
         return loss_numpy
 
-    def train_iter(self, optimizers=None):
+    def train_iter(self, optimizers=None, rank=0):
         phase_real_img = self.input[0]
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
         # 对齐梯度用
         dic2 = None
-        # if self.align_grad:
-        #     print('======================== batch%.5d.npz ========================'%self.batch_idx)
-        #     npz_path = 'batch%.5d.npz'%self.batch_idx
-        #     isDebug = True if sys.gettrace() else False
-        #     if isDebug:
-        #         npz_path = '../batch%.5d.npz'%self.batch_idx
-        #     dic2 = np.load(npz_path)
-        #     aaaaaaaaa = dic2['phase_real_img']
-        #     phase_real_img = torch.Tensor(aaaaaaaaa).cuda().to(torch.float32)
+        if self.align_grad:
+            print('======================== batch%.5d.npz ========================'%self.batch_idx)
+            npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+            isDebug = True if sys.gettrace() else False
+            if isDebug:
+                npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+            dic2 = np.load(npz_path)
+            aaaaaaaaa = dic2['phase_real_img']
+            phase_real_img = torch.Tensor(aaaaaaaaa).cuda().to(torch.float32)
 
         phase_real_img = phase_real_img / 127.5 - 1
 
@@ -286,8 +316,8 @@ class StyleGANv2ADAModel(torch.nn.Module):
         batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
         if self.z_dim > 0:
             all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
-            # if self.align_grad:
-            #     all_gen_z = torch.Tensor(dic2['all_gen_z']).cuda().to(torch.float32)
+            if self.align_grad:
+                all_gen_z = torch.Tensor(dic2['all_gen_z']).cuda().to(torch.float32)
         else:
             all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
         phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
@@ -384,8 +414,9 @@ class StyleGANv2ADAModel(torch.nn.Module):
             Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
             diff = Loss_signs_real_mean - self.ada_target
             adjust = np.sign(diff)
-            # print(Loss_signs_real_mean)
-            # print('==========================')
+            print(self.augment_pipe.p)
+            print(Loss_signs_real_mean)
+            print('==========================')
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=self.augment_pipe.p.device)))
             self.Loss_signs_real = []
