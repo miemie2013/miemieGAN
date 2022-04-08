@@ -30,12 +30,20 @@ if __name__ == "__main__":
     args = make_parser().parse_args()
 
     ckpt_file1 = args.cp1
-    state_dict1_pytorch = torch.load(ckpt_file1, map_location=torch.device('cpu'))
-    state_dict1_pytorch = state_dict1_pytorch['model']
+    aaa = torch.load(ckpt_file1, map_location=torch.device('cpu'))
+    state_dict1_pytorch = dict()
+    for key in ['synthesis', 'synthesis_ema', 'mapping', 'mapping_ema', 'discriminator']:
+        aa = aaa[key]
+        for key2, value1 in aa.items():
+            state_dict1_pytorch[key2] = value1
 
     ckpt_file2 = args.cp2
-    state_dict2_pytorch = torch.load(ckpt_file2, map_location=torch.device('cpu'))
-    state_dict2_pytorch = state_dict2_pytorch['model']
+    aaa = torch.load(ckpt_file2, map_location=torch.device('cpu'))
+    state_dict2_pytorch = dict()
+    for key in ['synthesis', 'synthesis_ema', 'mapping', 'mapping_ema', 'discriminator']:
+        aa = aaa[key]
+        for key2, value1 in aa.items():
+            state_dict2_pytorch[key2] = value1
 
     d_value = args.d_value
     print('======================== diff(weights) > d_value=%.6f ========================' % d_value)

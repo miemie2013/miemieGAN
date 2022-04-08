@@ -132,11 +132,22 @@ class Trainer:
         torch.cuda.set_device(self.local_rank)
         if self.archi_name == 'StyleGANv2ADA':
             model = self.exp.get_model()
+            model.synthesis.to(self.device)
+            model.synthesis_ema.to(self.device)
+            model.mapping.to(self.device)
+            model.mapping_ema.to(self.device)
+            model.discriminator.to(self.device)
+            model.augment_pipe.to(self.device)
         elif self.archi_name == 'StyleGANv3':
             model = self.exp.get_model(self.args.batch_size)
+            model.synthesis.to(self.device)
+            model.synthesis_ema.to(self.device)
+            model.mapping.to(self.device)
+            model.mapping_ema.to(self.device)
+            model.discriminator.to(self.device)
+            model.augment_pipe.to(self.device)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
-        model.to(self.device)
 
         # 是否进行梯度裁剪
         self.need_clip = False
@@ -497,8 +508,15 @@ class Trainer:
             if self.args.ckpt is not None:
                 logger.info("loading checkpoint for fine tuning")
                 ckpt_file = self.args.ckpt
-                ckpt = torch.load(ckpt_file, map_location=self.device)["model"]
-                model = load_ckpt(model, ckpt)
+                if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
+                    ckpt = torch.load(ckpt_file, map_location=self.device)
+                    model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+                    model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+                    model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+                    model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+                    model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
+                else:
+                    raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
             self.start_epoch = 0
 
         return model
@@ -528,7 +546,11 @@ class Trainer:
             if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
                 ckpt_state = {
                     "start_epoch": self.epoch + 1,
-                    "model": save_model.state_dict(),
+                    "synthesis": save_model.synthesis.state_dict(),
+                    "synthesis_ema": save_model.synthesis_ema.state_dict(),
+                    "mapping": save_model.mapping.state_dict(),
+                    "mapping_ema": save_model.mapping_ema.state_dict(),
+                    "discriminator": save_model.discriminator.state_dict(),
                     "optimizer_G": self.optimizer_G.state_dict(),
                     "optimizer_D": self.optimizer_D.state_dict(),
                 }

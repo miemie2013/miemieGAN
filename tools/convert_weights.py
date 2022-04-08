@@ -108,9 +108,7 @@ def main(exp, args):
 
     use_gpu = False
     if args.device == "gpu":
-        model.cuda()
         use_gpu = True
-    model.eval()
 
     # 新增算法时这里也要增加elif
     if model_class_name == 'StyleGANv2ADAModel':
@@ -193,7 +191,11 @@ def main(exp, args):
     # save checkpoint.
     ckpt_state = {
         "start_epoch": 0,
-        "model": model.state_dict(),
+        "synthesis": model.synthesis.state_dict(),
+        "synthesis_ema": model.synthesis_ema.state_dict(),
+        "mapping": model.mapping.state_dict(),
+        "mapping_ema": model.mapping_ema.state_dict(),
+        "discriminator": model.discriminator.state_dict(),
         "optimizer": None,
     }
     torch.save(ckpt_state, args.output_ckpt)
