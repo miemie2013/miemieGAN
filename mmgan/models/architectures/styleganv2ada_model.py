@@ -8,6 +8,8 @@ import sys
 import contextlib
 
 from mmgan.models.generators.generator_styleganv2ada import constant
+from mmgan.utils import training_stats
+
 
 @contextlib.contextmanager
 def ddp_sync(module, sync, is_distributed):
@@ -120,6 +122,10 @@ class StyleGANv2ADAModel:
         self.ada_target = ada_target
         self.ada_interval = ada_interval
         self.adjust_p = adjust_p
+        self.ada_stats = None
+        if self.adjust_p:
+            self.ada_stats = training_stats.Collector(regex='Loss/signs/real')
+        # self.stats_collector = training_stats.Collector(regex='.*')
         self.Loss_signs_real = []
 
         self.align_grad = False
@@ -322,8 +328,9 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function(name + '_forward'):
                 real_img_tmp = real_img.detach().requires_grad_(do_Dr1)
                 real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
-                if self.adjust_p and self.augment_pipe is not None:
-                    self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
+                training_stats.report('Loss/signs/real', real_logits.sign())
+                # if self.adjust_p and self.augment_pipe is not None:
+                #     self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
                 if self.align_grad:
                     print_diff(dic, phase + ' real_logits', real_logits)
 
@@ -529,7 +536,10 @@ class StyleGANv2ADAModel:
         # Execute ADA heuristic.
         if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
             # self.ada_interval个迭代中，real_logits.sign()的平均值。
-            Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
+            # Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
+            self.ada_stats.update()
+            Loss_signs_real_mean = self.ada_stats['Loss/signs/real']
+
             diff = Loss_signs_real_mean - self.ada_target
             adjust = np.sign(diff)
             if self.align_grad:
