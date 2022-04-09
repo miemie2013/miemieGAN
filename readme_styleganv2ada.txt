@@ -67,6 +67,7 @@ python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py
 CUDA_VISIBLE_DEVICES=0
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 1 -b 8 -eb 1 -c styleganv2ada_32_00.pth
 
+
 CUDA_VISIBLE_DEVICES=0,1
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 2 -b 8 -eb 2 -c styleganv2ada_32_00.pth
 

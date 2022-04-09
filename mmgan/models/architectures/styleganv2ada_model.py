@@ -29,6 +29,16 @@ def no_weight_gradients():
     weight_gradients_disabled = old
 
 
+def save_tensor(dic, key, tensor):
+    if tensor is not None:  # 有的梯度张量可能是None
+        dic[key] = tensor.cpu().detach().numpy()
+
+def print_diff(dic, key, tensor):
+    if tensor is not None:  # 有的梯度张量可能是None
+        ddd = np.sum((dic[key] - tensor.cpu().detach().numpy()) ** 2)
+        print('diff=%.6f (%s)' % (ddd, key))
+
+
 def soft_update(source, target, beta=1.0):
     assert 0.0 <= beta <= 1.0
     for param, param_test in zip(source.parameters(), target.parameters()):
@@ -164,7 +174,7 @@ class StyleGANv2ADAModel:
         return logits
 
     # 梯度累加（变相增大批大小）。dic2是为了梯度对齐。
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain, dic2=None):
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, sync, gain, dic=None):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         do_Gmain = (phase in ['Gmain', 'Gboth'])
         do_Dmain = (phase in ['Dmain', 'Dboth'])
@@ -180,15 +190,12 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function('Gmain_forward'):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-                    print('do_Gmain gen_img=%.6f' % ddd)
-                    ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
-                    print('do_Gmain _gen_ws=%.6f' % ddd)
+                    print_diff(dic, phase + ' gen_img', gen_img)
+                    print_diff(dic, phase + ' _gen_ws', _gen_ws)
 
                 gen_logits = self.run_D(gen_img, gen_c, sync=False)
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
-                    print('do_Gmain gen_logits=%.6f' % ddd)
+                    print_diff(dic, phase + ' gen_logits', gen_logits)
 
                 loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
                 loss_Gmain = loss_Gmain.mean()
@@ -198,6 +205,19 @@ class StyleGANv2ADAModel:
                 loss_G = loss_G * float(gain)
             with torch.autograd.profiler.record_function('Gmain_backward'):
                 loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                if self.align_grad:
+                    m_w_grad = self.mapping.fc7.weight.grad
+                    m_b_grad = self.mapping.fc7.bias.grad
+                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = self.discriminator.b32.conv0.weight.grad
+                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                    print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                    print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                    print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                    print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                    print_diff(dic, phase + ' d_b_grad', d_b_grad)
 
         # Gpl: Apply path length regularization.
         if do_Gpl:
@@ -213,10 +233,8 @@ class StyleGANv2ADAModel:
 
                 gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-                    print('do_Gpl gen_img=%.6f' % ddd)
-                    ddd = np.sum((dic2[phase + 'gen_ws'] - gen_ws.cpu().detach().numpy()) ** 2)
-                    print('do_Gpl gen_ws=%.6f' % ddd)
+                    print_diff(dic, phase + ' gen_img', gen_img)
+                    print_diff(dic, phase + ' gen_ws', gen_ws)
                 # pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
                 pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
                 with torch.autograd.profiler.record_function('pl_grads'), no_weight_gradients():
@@ -224,10 +242,7 @@ class StyleGANv2ADAModel:
 
                 pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'pl_grads'] - pl_grads.cpu().detach().numpy()) ** 2)
-                    print('do_Gpl pl_grads=%.6f' % ddd)
-                    ddd = np.sum((dic2[phase + 'pl_lengths'] - pl_lengths.cpu().detach().numpy()) ** 2)
-                    print('do_Gpl pl_lengths=%.6f' % ddd)
+                    print_diff(dic, phase + ' pl_grads', pl_grads)
                 if self.pl_mean is None:
                     self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=pl_lengths.device)
                 pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
@@ -240,6 +255,19 @@ class StyleGANv2ADAModel:
                 loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
             with torch.autograd.profiler.record_function('Gpl_backward'):
                 loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                if self.align_grad:
+                    m_w_grad = self.mapping.fc7.weight.grad
+                    m_b_grad = self.mapping.fc7.bias.grad
+                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = self.discriminator.b32.conv0.weight.grad
+                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                    print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                    print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                    print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                    print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                    print_diff(dic, phase + ' d_b_grad', d_b_grad)
 
         # Dmain: Minimize logits for generated images.
         if do_Dmain:
@@ -248,14 +276,11 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function('Dgen_forward'):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=False)
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'gen_img'] - gen_img.cpu().detach().numpy()) ** 2)
-                    print('do_Dmain gen_img=%.6f' % ddd)
-                    ddd = np.sum((dic2[phase + '_gen_ws'] - _gen_ws.cpu().detach().numpy()) ** 2)
-                    print('do_Dmain _gen_ws=%.6f' % ddd)
+                    print_diff(dic, phase + ' gen_img', gen_img)
+                    print_diff(dic, phase + ' _gen_ws', _gen_ws)
                 gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'gen_logits'] - gen_logits.cpu().detach().numpy()) ** 2)
-                    print('do_Dmain gen_logits=%.6f' % ddd)
+                    print_diff(dic, phase + ' gen_logits', gen_logits)
 
                 loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 # loss_Dgen.mean().mul(gain).backward()
@@ -265,6 +290,19 @@ class StyleGANv2ADAModel:
                 loss3 = loss_Dgen * float(gain)
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss3.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                if self.align_grad:
+                    m_w_grad = self.mapping.fc7.weight.grad
+                    m_b_grad = self.mapping.fc7.bias.grad
+                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = self.discriminator.b32.conv0.weight.grad
+                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    print_diff(dic, phase + ' backward0 m_w_grad', m_w_grad)
+                    print_diff(dic, phase + ' backward0 m_b_grad', m_b_grad)
+                    print_diff(dic, phase + ' backward0 s_w_grad', s_w_grad)
+                    print_diff(dic, phase + ' backward0 s_b_grad', s_b_grad)
+                    print_diff(dic, phase + ' backward0 d_w_grad', d_w_grad)
+                    print_diff(dic, phase + ' backward0 d_b_grad', d_b_grad)
 
         # Dmain: Maximize logits for real images.
         # Dr1: Apply R1 regularization.
@@ -276,8 +314,7 @@ class StyleGANv2ADAModel:
                 if self.adjust_p and self.augment_pipe is not None:
                     self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
                 if self.align_grad:
-                    ddd = np.sum((dic2[phase + 'real_logits'] - real_logits.cpu().detach().numpy()) ** 2)
-                    print('do_Dmain or do_Dr1 real_logits=%.6f' % ddd)
+                    print_diff(dic, phase + ' real_logits', real_logits)
 
                 loss_Dreal = 0
                 if do_Dmain:
@@ -285,8 +322,7 @@ class StyleGANv2ADAModel:
                     # 每个step都做1次
                     loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
                     if self.align_grad:
-                        ddd = np.sum((dic2[phase + 'loss_Dreal'] - loss_Dreal.cpu().detach().numpy()) ** 2)
-                        print('do_Dmain or do_Dr1 do_Dmain loss_Dreal=%.6f' % ddd)
+                        print_diff(dic, phase + ' loss_Dreal', loss_Dreal)
                     loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
 
                 loss_Dr1 = 0
@@ -296,12 +332,8 @@ class StyleGANv2ADAModel:
                     with torch.autograd.profiler.record_function('r1_grads'), no_weight_gradients():
                         r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
                     if self.align_grad:
-                        ddd = np.sum((dic2[phase + 'r1_grads'] - r1_grads.cpu().detach().numpy()) ** 2)
-                        print('do_Dmain or do_Dr1 do_Dr1 r1_grads=%.6f' % ddd)
+                        print_diff(dic, phase + ' r1_grads', r1_grads)
                     r1_penalty = r1_grads.square().sum([1, 2, 3])
-                    if self.align_grad:
-                        ddd = np.sum((dic2[phase + 'r1_penalty'] - r1_penalty.cpu().detach().numpy()) ** 2)
-                        print('do_Dmain or do_Dr1 do_Dr1 r1_penalty=%.6f' % ddd)
                     loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                     loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
 
@@ -310,6 +342,27 @@ class StyleGANv2ADAModel:
                 #     loss4 += loss3
             with torch.autograd.profiler.record_function(name + '_backward'):
                 loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                if self.align_grad:
+                    m_w_grad = self.mapping.fc7.weight.grad
+                    m_b_grad = self.mapping.fc7.bias.grad
+                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = self.discriminator.b32.conv0.weight.grad
+                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    if do_Dmain:
+                        print_diff(dic, phase + ' backward1 m_w_grad', m_w_grad)
+                        print_diff(dic, phase + ' backward1 m_b_grad', m_b_grad)
+                        print_diff(dic, phase + ' backward1 s_w_grad', s_w_grad)
+                        print_diff(dic, phase + ' backward1 s_b_grad', s_b_grad)
+                        print_diff(dic, phase + ' backward1 d_w_grad', d_w_grad)
+                        print_diff(dic, phase + ' backward1 d_b_grad', d_b_grad)
+                    if do_Dr1:
+                        print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                        print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                        print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                        print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                        print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                        print_diff(dic, phase + ' d_b_grad', d_b_grad)
         return loss_numpy
 
     def train_iter(self, optimizers=None, rank=0):
@@ -403,7 +456,7 @@ class StyleGANv2ADAModel:
 
                 # 梯度累加（变相增大批大小）。
                 loss_numpy = self.accumulate_gradients(phase=phase['name'], real_img=real_img, real_c=real_c,
-                                                       gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain, dic2=dic2)
+                                                       gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain, dic=dic2)
                 for k, v in loss_numpy.items():
                     if k in loss_numpys:
                         loss_numpys[k] += v
@@ -456,8 +509,7 @@ class StyleGANv2ADAModel:
                 w_avg = self.mapping.module.w_avg
             else:
                 w_avg = self.mapping.w_avg
-            ddd = np.sum((dic2['w_avg'] - w_avg.cpu().detach().numpy()) ** 2)
-            print('w_avg ddd=%.6f' % ddd)
+            print_diff(dic2, 'w_avg', w_avg)
 
         # Execute ADA heuristic.
         if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
@@ -466,10 +518,9 @@ class StyleGANv2ADAModel:
             diff = Loss_signs_real_mean - self.ada_target
             adjust = np.sign(diff)
             if self.align_grad:
-                ddd = np.sum((dic2['augment_pipe_p'] - self.augment_pipe.p.cpu().detach().numpy()) ** 2)
-                print('augment_pipe_p ddd=%.6f' % ddd)
-                ddd = np.sum((dic2['aaaaaaaaaa1'] - np.array(Loss_signs_real_mean)) ** 2)
-                print('aaaaaaaaaa1 ddd=%.6f' % ddd)
+                print_diff(dic2, 'augment_pipe_p', self.augment_pipe.p)
+                kkk = 'aaaaaaaaaa1'; ddd = np.sum((dic2[kkk] - np.array(Loss_signs_real_mean)) ** 2)
+                print('diff=%.6f (%s)' % (ddd, kkk))
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=self.augment_pipe.p.device)))
             self.Loss_signs_real = []
