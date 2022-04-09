@@ -1,7 +1,8 @@
 import torch.nn as nn
 import torch
 
-from ..generators.generator_styleganv2ada import StyleGANv2ADA_MappingNetwork, upfirdn2d_setup_filter, Conv2dLayer, FullyConnectedLayer, downsample2d
+from ..generators.generator_styleganv2ada import StyleGANv2ADA_MappingNetwork, upfirdn2d_setup_filter, Conv2dLayer, \
+    FullyConnectedLayer, downsample2d, suppress_tracer_warnings
 
 import numpy as np
 
@@ -77,7 +78,7 @@ class DiscriminatorBlock(nn.Module):
             y = self.skip(x, gain=np.sqrt(0.5))
             x = self.conv0(x)
             x = self.conv1(x, gain=np.sqrt(0.5))
-            x = y + x
+            x = y.add_(x)
         else:
             x = self.conv0(x)
             x = self.conv1(x)
@@ -93,7 +94,8 @@ class MinibatchStdLayer(nn.Module):
 
     def forward(self, x):
         N, C, H, W = x.shape
-        G = min(self.group_size, N) if self.group_size is not None else N
+        with suppress_tracer_warnings():  # as_tensor results are registered as constants
+            G = torch.min(torch.as_tensor(self.group_size), torch.as_tensor(N)) if self.group_size is not None else N
         F = self.num_channels
         c = C // F
 
