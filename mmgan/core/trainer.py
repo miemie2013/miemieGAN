@@ -50,7 +50,11 @@ class Trainer:
         self.is_distributed = get_world_size() > 1
         self.rank = get_rank()
         self.local_rank = get_local_rank()
-        self.device = "cuda:{}".format(self.local_rank)
+
+        # 注意!!!YOLOX中每个模型的device是local_rank,但是StyleGAN2ADA中是rank!
+        # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
+        # self.device = "cuda:{}".format(self.local_rank)
+        self.device = "cuda:{}".format(self.rank)
 
         # data/dataloader related attr
         self.data_type = torch.float16 if args.fp16 else torch.float32
@@ -137,26 +141,12 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
-            model = self.exp.get_model()
-            model.synthesis.to(self.device)
-            model.synthesis_ema.to(self.device)
-            model.mapping.to(self.device)
-            model.mapping_ema.to(self.device)
-            model.discriminator.to(self.device)
-            model.augment_pipe.to(self.device)
         elif self.archi_name == 'StyleGANv3':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
             sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
-            model = self.exp.get_model(self.args.batch_size)
-            model.synthesis.to(self.device)
-            model.synthesis_ema.to(self.device)
-            model.mapping.to(self.device)
-            model.mapping_ema.to(self.device)
-            model.discriminator.to(self.device)
-            model.augment_pipe.to(self.device)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -238,11 +228,14 @@ class Trainer:
                 model.discriminator.requires_grad_(True)
                 model.mapping_ema.requires_grad_(True)
                 model.synthesis_ema.requires_grad_(True)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
+                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
+                # 所以这里将参数device_ids改成StyleGAN2ADA中的self.device
+                model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
                 model.mapping.requires_grad_(False)
                 model.synthesis.requires_grad_(False)
                 model.discriminator.requires_grad_(False)
@@ -342,11 +335,14 @@ class Trainer:
                 model.discriminator.requires_grad_(True)
                 model.mapping_ema.requires_grad_(True)
                 model.synthesis_ema.requires_grad_(True)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
+                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
+                # 所以这里将参数device_ids改成StyleGAN2ADA中的self.device
+                model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
                 model.mapping.requires_grad_(False)
                 model.synthesis.requires_grad_(False)
                 model.discriminator.requires_grad_(False)

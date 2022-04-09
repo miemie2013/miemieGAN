@@ -55,6 +55,7 @@ class StyleGANv2ADAModel:
         mapping,
         mapping_ema,
         discriminator=None,
+        device=None,
         G_reg_interval=4,
         D_reg_interval=16,
         augment_pipe=None,
@@ -88,6 +89,7 @@ class StyleGANv2ADAModel:
         if discriminator:
             self.discriminator = discriminator
             self.discriminator.train()
+        self.device = device
         self.c_dim = mapping.c_dim
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim
@@ -402,6 +404,7 @@ class StyleGANv2ADAModel:
         phase_real_img = self.input[0]
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
+        device = self.device
 
         if self.batch_idx == 0:
             '''
@@ -428,7 +431,7 @@ class StyleGANv2ADAModel:
             aaaaaaaaa = dic2['phase_real_img']
             phase_real_img = torch.Tensor(aaaaaaaaa).cuda().to(torch.float32)
 
-        phase_real_img = phase_real_img / 127.5 - 1
+        phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
 
 
         phases = self.phases
@@ -449,7 +452,7 @@ class StyleGANv2ADAModel:
         c_dim = phases_all_gen_c[0].shape[1]
         all_gen_c = None
         if c_dim > 0:
-            all_gen_c = [phase_gen_c.split(batch_gpu) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
+            all_gen_c = [phase_gen_c.to(device).split(batch_gpu) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
         else:
             all_gen_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
 
@@ -457,7 +460,7 @@ class StyleGANv2ADAModel:
 
         c_dim = phase_real_c.shape[1]
         if c_dim > 0:
-            phase_real_c = phase_real_c.split(batch_gpu)
+            phase_real_c = phase_real_c.to(device).split(batch_gpu)
         else:
             phase_real_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
 
@@ -558,7 +561,7 @@ class StyleGANv2ADAModel:
                 kkk = 'aaaaaaaaaa1'; ddd = np.sum((dic2[kkk] - np.array(Loss_signs_real_mean)) ** 2)
                 print('diff=%.6f (%s)' % (ddd, kkk))
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
-            self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=self.augment_pipe.p.device)))
+            self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=device)))
             self.Loss_signs_real = []
 
         return loss_numpys
