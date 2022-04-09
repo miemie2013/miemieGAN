@@ -206,12 +206,15 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function('Gmain_backward'):
                 loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
                 if self.align_grad:
-                    m_w_grad = self.mapping.fc7.weight.grad
-                    m_b_grad = self.mapping.fc7.bias.grad
-                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
-                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
-                    d_w_grad = self.discriminator.b32.conv0.weight.grad
-                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    mapping = self.mapping.module if self.is_distributed else self.mapping
+                    synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                    discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                    m_w_grad = mapping.fc7.weight.grad
+                    m_b_grad = mapping.fc7.bias.grad
+                    s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = discriminator.b32.conv0.weight.grad
+                    d_b_grad = discriminator.b32.conv0.bias.grad
                     print_diff(dic, phase + ' m_w_grad', m_w_grad)
                     print_diff(dic, phase + ' m_b_grad', m_b_grad)
                     print_diff(dic, phase + ' s_w_grad', s_w_grad)
@@ -256,12 +259,15 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function('Gpl_backward'):
                 loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
                 if self.align_grad:
-                    m_w_grad = self.mapping.fc7.weight.grad
-                    m_b_grad = self.mapping.fc7.bias.grad
-                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
-                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
-                    d_w_grad = self.discriminator.b32.conv0.weight.grad
-                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    mapping = self.mapping.module if self.is_distributed else self.mapping
+                    synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                    discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                    m_w_grad = mapping.fc7.weight.grad
+                    m_b_grad = mapping.fc7.bias.grad
+                    s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = discriminator.b32.conv0.weight.grad
+                    d_b_grad = discriminator.b32.conv0.bias.grad
                     print_diff(dic, phase + ' m_w_grad', m_w_grad)
                     print_diff(dic, phase + ' m_b_grad', m_b_grad)
                     print_diff(dic, phase + ' s_w_grad', s_w_grad)
@@ -291,12 +297,15 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss3.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
                 if self.align_grad:
-                    m_w_grad = self.mapping.fc7.weight.grad
-                    m_b_grad = self.mapping.fc7.bias.grad
-                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
-                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
-                    d_w_grad = self.discriminator.b32.conv0.weight.grad
-                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    mapping = self.mapping.module if self.is_distributed else self.mapping
+                    synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                    discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                    m_w_grad = mapping.fc7.weight.grad
+                    m_b_grad = mapping.fc7.bias.grad
+                    s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = discriminator.b32.conv0.weight.grad
+                    d_b_grad = discriminator.b32.conv0.bias.grad
                     print_diff(dic, phase + ' backward0 m_w_grad', m_w_grad)
                     print_diff(dic, phase + ' backward0 m_b_grad', m_b_grad)
                     print_diff(dic, phase + ' backward0 s_w_grad', s_w_grad)
@@ -343,12 +352,15 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function(name + '_backward'):
                 loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
                 if self.align_grad:
-                    m_w_grad = self.mapping.fc7.weight.grad
-                    m_b_grad = self.mapping.fc7.bias.grad
-                    s_w_grad = self.synthesis.b32.conv0.affine.weight.grad
-                    s_b_grad = self.synthesis.b32.conv0.affine.bias.grad
-                    d_w_grad = self.discriminator.b32.conv0.weight.grad
-                    d_b_grad = self.discriminator.b32.conv0.bias.grad
+                    mapping = self.mapping.module if self.is_distributed else self.mapping
+                    synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                    discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                    m_w_grad = mapping.fc7.weight.grad
+                    m_b_grad = mapping.fc7.bias.grad
+                    s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                    s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                    d_w_grad = discriminator.b32.conv0.weight.grad
+                    d_b_grad = discriminator.b32.conv0.bias.grad
                     if do_Dmain:
                         print_diff(dic, phase + ' backward1 m_w_grad', m_w_grad)
                         print_diff(dic, phase + ' backward1 m_b_grad', m_b_grad)
