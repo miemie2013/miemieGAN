@@ -429,7 +429,7 @@ class StyleGANv2ADAModel:
                 npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
             dic2 = np.load(npz_path)
             aaaaaaaaa = dic2['phase_real_img']
-            phase_real_img = torch.Tensor(aaaaaaaaa).cuda().to(torch.float32)
+            phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
 
         phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
 
@@ -443,7 +443,7 @@ class StyleGANv2ADAModel:
         if self.z_dim > 0:
             all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
             if self.align_grad:
-                all_gen_z = torch.Tensor(dic2['all_gen_z']).cuda().to(torch.float32)
+                all_gen_z = torch.Tensor(dic2['all_gen_z']).to(device).to(torch.float32)
         else:
             all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
         phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
