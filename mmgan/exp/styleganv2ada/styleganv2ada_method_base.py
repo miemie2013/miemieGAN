@@ -142,7 +142,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self, device):
+    def get_model(self, device, rank):
         from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv2ADAModel
         if getattr(self, "model", None) is None:
@@ -166,7 +166,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping.requires_grad_(False)
             mapping_ema.requires_grad_(False)
             discriminator.requires_grad_(False)
-            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema, discriminator, device,
+            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema, discriminator, device, rank,
                                             augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 

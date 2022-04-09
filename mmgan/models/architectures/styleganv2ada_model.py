@@ -9,6 +9,7 @@ import contextlib
 
 from mmgan.models.generators.generator_styleganv2ada import constant
 from mmgan.utils import training_stats
+from mmgan.utils.training_stats import EasyDict
 
 
 @contextlib.contextmanager
@@ -56,6 +57,7 @@ class StyleGANv2ADAModel:
         mapping_ema,
         discriminator=None,
         device=None,
+        rank=0,
         G_reg_interval=4,
         D_reg_interval=16,
         augment_pipe=None,
@@ -90,6 +92,7 @@ class StyleGANv2ADAModel:
             self.discriminator = discriminator
             self.discriminator.train()
         self.device = device
+        self.rank = rank
         self.c_dim = mapping.c_dim
         self.z_dim = mapping.z_dim
         self.w_dim = mapping.w_dim
@@ -97,10 +100,16 @@ class StyleGANv2ADAModel:
         self.phases = []
         for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
             if reg_interval is None:
-                self.phases += [dict(name=name + 'both', interval=1)]
+                self.phases += [EasyDict(name=name + 'both', interval=1)]
             else:  # Lazy regularization.
-                self.phases += [dict(name=name + 'main', interval=1)]
-                self.phases += [dict(name=name + 'reg', interval=reg_interval)]
+                self.phases += [EasyDict(name=name + 'main', interval=1)]
+                self.phases += [EasyDict(name=name + 'reg', interval=reg_interval)]
+        for phase in self.phases:
+            phase.start_event = None
+            phase.end_event = None
+            if rank == 0:
+                phase.start_event = torch.cuda.Event(enable_timing=True)
+                phase.end_event = torch.cuda.Event(enable_timing=True)
 
         self.z_dim = self.mapping.z_dim
         self.cur_nimg = 0
@@ -472,6 +481,8 @@ class StyleGANv2ADAModel:
                 continue
 
             # Initialize gradient accumulation.  咩酱：初始化梯度累加（变相增大批大小）。
+            if phase.start_event is not None:
+                phase.start_event.record(torch.cuda.current_stream(device))
             if 'G' in phase['name']:
                 optimizers['optimizer_G'].zero_grad(set_to_none=True)
                 self.mapping.requires_grad_(True)
@@ -511,31 +522,36 @@ class StyleGANv2ADAModel:
                 self.synthesis.requires_grad_(False)
                 # for param_group in optimizers['optimizer_G'].param_groups:
                 #     param_group["params"][0].requires_grad = False
-                optimizers['optimizer_G'].step()  # 更新参数
+                with torch.autograd.profiler.record_function(phase.name + '_opt'):
+                    optimizers['optimizer_G'].step()  # 更新参数
             elif 'D' in phase['name']:
                 self.discriminator.requires_grad_(False)
                 # for param_group in optimizers['optimizer_D'].param_groups:
                 #     param_group["params"][0].requires_grad = False
-                optimizers['optimizer_D'].step()  # 更新参数
+                with torch.autograd.profiler.record_function(phase.name + '_opt'):
+                    optimizers['optimizer_D'].step()  # 更新参数
+            if phase.end_event is not None:
+                phase.end_event.record(torch.cuda.current_stream(device))
 
         # compute moving average of network parameters。指数滑动平均
-        self.mapping_ema.requires_grad_(False)
-        self.synthesis_ema.requires_grad_(False)
+        # self.mapping_ema.requires_grad_(False)
+        # self.synthesis_ema.requires_grad_(False)
         ema_kimg = self.ema_kimg
-        ema_nimg = ema_kimg * 1000
-        ema_rampup = self.ema_rampup
-        cur_nimg = self.cur_nimg
-        if ema_rampup is not None:
-            ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
-        ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
-        for p_ema, p in zip(self.mapping_ema.parameters(), self.mapping.parameters()):
-            p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p   ;ema模型占的比重ema_beta大
-        for b_ema, b in zip(self.mapping_ema.buffers(), self.mapping.buffers()):
-            b_ema.copy_(b)
-        for p_ema, p in zip(self.synthesis_ema.parameters(), self.synthesis.parameters()):
-            p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p   ;ema模型占的比重ema_beta大
-        for b_ema, b in zip(self.synthesis_ema.buffers(), self.synthesis.buffers()):
-            b_ema.copy_(b)
+        with torch.autograd.profiler.record_function('Gema'):
+            ema_nimg = ema_kimg * 1000
+            ema_rampup = self.ema_rampup
+            cur_nimg = self.cur_nimg
+            if ema_rampup is not None:
+                ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
+            ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
+            for p_ema, p in zip(self.mapping_ema.parameters(), self.mapping.parameters()):
+                p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p   ;ema模型占的比重ema_beta大
+            for b_ema, b in zip(self.mapping_ema.buffers(), self.mapping.buffers()):
+                b_ema.copy_(b)
+            for p_ema, p in zip(self.synthesis_ema.parameters(), self.synthesis.parameters()):
+                p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p   ;ema模型占的比重ema_beta大
+            for b_ema, b in zip(self.synthesis_ema.buffers(), self.synthesis.buffers()):
+                b_ema.copy_(b)
 
         self.cur_nimg += batch_size
         self.batch_idx += 1

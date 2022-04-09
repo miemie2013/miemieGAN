@@ -140,7 +140,7 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
-            model = self.exp.get_model(self.device)
+            model = self.exp.get_model(self.device, self.rank)
 
             # value of epoch will be set in `resume_train`
             model = self.resume_train(model)
@@ -150,7 +150,7 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
-            model = self.exp.get_model(self.device, self.args.batch_size)
+            model = self.exp.get_model(self.device, self.rank, self.args.batch_size)
 
             # value of epoch will be set in `resume_train`
             model = self.resume_train(model)
