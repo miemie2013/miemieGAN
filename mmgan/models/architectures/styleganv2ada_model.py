@@ -203,7 +203,10 @@ class StyleGANv2ADAModel:
                 if self.align_grad:
                     print_diff(dic, phase + ' gen_logits', gen_logits)
 
+                training_stats.report('Loss/scores/fake', gen_logits)
+                training_stats.report('Loss/signs/fake', gen_logits.sign())
                 loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
+                training_stats.report('Loss/G/loss', loss_Gmain)
                 # loss_Gmain = loss_Gmain.mean()
                 # loss_numpy['loss_Gmain'] = loss_Gmain.cpu().detach().numpy()
 
@@ -259,7 +262,9 @@ class StyleGANv2ADAModel:
                 self.pl_mean.copy_(pl_mean.detach())
 
                 pl_penalty = (pl_lengths - pl_mean).square()
+                training_stats.report('Loss/pl_penalty', pl_penalty)
                 loss_Gpl = pl_penalty * self.pl_weight
+                training_stats.report('Loss/G/reg', loss_Gpl)
 
                 # loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
                 # loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
@@ -295,6 +300,8 @@ class StyleGANv2ADAModel:
                 gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
                 if self.align_grad:
                     print_diff(dic, phase + ' gen_logits', gen_logits)
+                training_stats.report('Loss/scores/fake', gen_logits)
+                training_stats.report('Loss/signs/fake', gen_logits.sign())
 
                 loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 # loss_Dgen = loss_Dgen.mean()
@@ -328,6 +335,7 @@ class StyleGANv2ADAModel:
             with torch.autograd.profiler.record_function(name + '_forward'):
                 real_img_tmp = real_img.detach().requires_grad_(do_Dr1)
                 real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
+                training_stats.report('Loss/scores/real', real_logits)
                 training_stats.report('Loss/signs/real', real_logits.sign())
                 # if self.adjust_p and self.augment_pipe is not None:
                 #     self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
@@ -342,6 +350,7 @@ class StyleGANv2ADAModel:
                     if self.align_grad:
                         print_diff(dic, phase + ' loss_Dreal', loss_Dreal)
                     loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
+                    training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)
 
                 loss_Dr1 = 0
                 if do_Dr1:
@@ -354,6 +363,8 @@ class StyleGANv2ADAModel:
                     r1_penalty = r1_grads.square().sum([1, 2, 3])
                     loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                     loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
+                    training_stats.report('Loss/r1_penalty', r1_penalty)
+                    training_stats.report('Loss/D/reg', loss_Dr1)
 
                 # loss4 = (loss_Dreal + loss_Dr1).mean() * float(gain)
                 # if do_Dmain:
