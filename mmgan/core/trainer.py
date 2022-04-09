@@ -30,6 +30,7 @@ from mmgan.utils import (
     occupy_mem,
     save_checkpoint,
     setup_logger,
+    training_stats,
     synchronize
 )
 
@@ -131,6 +132,11 @@ class Trainer:
         # model related init
         torch.cuda.set_device(self.local_rank)
         if self.archi_name == 'StyleGANv2ADA':
+            # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
+            sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
+            # if rank != 0:
+            #     custom_ops.verbosity = 'none'
             model = self.exp.get_model()
             model.synthesis.to(self.device)
             model.synthesis_ema.to(self.device)
@@ -139,6 +145,11 @@ class Trainer:
             model.discriminator.to(self.device)
             model.augment_pipe.to(self.device)
         elif self.archi_name == 'StyleGANv3':
+            # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
+            sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
+            # if rank != 0:
+            #     custom_ops.verbosity = 'none'
             model = self.exp.get_model(self.args.batch_size)
             model.synthesis.to(self.device)
             model.synthesis_ema.to(self.device)
