@@ -141,12 +141,14 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
+            model = self.exp.get_model(self.device)
         elif self.archi_name == 'StyleGANv3':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
             sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
+            model = self.exp.get_model(self.device, self.args.batch_size)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 

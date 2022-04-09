@@ -140,7 +140,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self, batch_size=1):
+    def get_model(self, device, batch_size=1):
         from mmgan.models import StyleGANv3_SynthesisNetwork, StyleGANv3_MappingNetwork, StyleGANv3_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv3Model
         if getattr(self, "model", None) is None:
