@@ -198,13 +198,14 @@ class StyleGANv2ADAModel:
                     print_diff(dic, phase + ' gen_logits', gen_logits)
 
                 loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
-                loss_Gmain = loss_Gmain.mean()
-                loss_numpy['loss_Gmain'] = loss_Gmain.cpu().detach().numpy()
+                # loss_Gmain = loss_Gmain.mean()
+                # loss_numpy['loss_Gmain'] = loss_Gmain.cpu().detach().numpy()
 
-                loss_G = loss_Gmain
-                loss_G = loss_G * float(gain)
+                # loss_G = loss_Gmain
+                # loss_G = loss_G * float(gain)
             with torch.autograd.profiler.record_function('Gmain_backward'):
-                loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                # loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                loss_Gmain.mean().mul(gain).backward()
                 if self.align_grad:
                     mapping = self.mapping.module if self.is_distributed else self.mapping
                     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
@@ -254,10 +255,11 @@ class StyleGANv2ADAModel:
                 pl_penalty = (pl_lengths - pl_mean).square()
                 loss_Gpl = pl_penalty * self.pl_weight
 
-                loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
-                loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
+                # loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean() * float(gain)
+                # loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
             with torch.autograd.profiler.record_function('Gpl_backward'):
-                loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                # loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(gain).backward()
                 if self.align_grad:
                     mapping = self.mapping.module if self.is_distributed else self.mapping
                     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
@@ -289,13 +291,13 @@ class StyleGANv2ADAModel:
                     print_diff(dic, phase + ' gen_logits', gen_logits)
 
                 loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
-                # loss_Dgen.mean().mul(gain).backward()
-                loss_Dgen = loss_Dgen.mean()
-                loss_numpy['loss_Dgen'] = loss_Dgen.cpu().detach().numpy()
+                # loss_Dgen = loss_Dgen.mean()
+                # loss_numpy['loss_Dgen'] = loss_Dgen.cpu().detach().numpy()
 
-                loss3 = loss_Dgen * float(gain)
+                # loss3 = loss_Dgen * float(gain)
             with torch.autograd.profiler.record_function('Dgen_backward'):
-                loss3.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                # loss3.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                loss_Dgen.mean().mul(gain).backward()
                 if self.align_grad:
                     mapping = self.mapping.module if self.is_distributed else self.mapping
                     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
@@ -346,11 +348,12 @@ class StyleGANv2ADAModel:
                     loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                     loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
 
-                loss4 = (loss_Dreal + loss_Dr1).mean() * float(gain)
+                # loss4 = (loss_Dreal + loss_Dr1).mean() * float(gain)
                 # if do_Dmain:
                 #     loss4 += loss3
             with torch.autograd.profiler.record_function(name + '_backward'):
-                loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                # loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
+                (real_logits * 0 + loss_Dreal + loss_Dr1).mean().mul(gain).backward()
                 if self.align_grad:
                     mapping = self.mapping.module if self.is_distributed else self.mapping
                     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
