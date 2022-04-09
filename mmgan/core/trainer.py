@@ -52,9 +52,8 @@ class Trainer:
         self.local_rank = get_local_rank()
 
         # 注意!!!YOLOX中每个模型的device是local_rank,但是StyleGAN2ADA中是rank!
-        # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
-        # self.device = "cuda:{}".format(self.local_rank)
-        self.device = "cuda:{}".format(self.rank)
+        # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是StyleGAN2ADA的bug!
+        self.device = "cuda:{}".format(self.local_rank)
 
         # data/dataloader related attr
         self.data_type = torch.float16 if args.fp16 else torch.float32
@@ -142,6 +141,9 @@ class Trainer:
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
             model = self.exp.get_model(self.device)
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
         elif self.archi_name == 'StyleGANv3':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
             sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
@@ -149,6 +151,20 @@ class Trainer:
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
             model = self.exp.get_model(self.device, self.args.batch_size)
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
+            resume = False
+            if self.args.resume:
+                resume = True
+            else:
+                if self.args.ckpt is not None:
+                    resume = True
+            if resume:
+                # 需要修改配置
+                model.ada_kimg = 100  # Make ADA react faster at the beginning.
+                model.ema_rampup = None  # Disable EMA rampup.
+                model.blur_init_sigma = 0  # Disable blur rampup.
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -156,6 +172,30 @@ class Trainer:
         self.need_clip = False
 
         if self.archi_name == 'StyleGANv2ADA':
+            # StyleGANv2ADA中,模型先转DDP模型,再创建优化器实例;
+            # YOLOX中,先创建优化器实例,模型再转DDP模型.哪种写法对呢???
+            if self.is_distributed:
+                # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
+                model.mapping.requires_grad_(True)
+                model.synthesis.requires_grad_(True)
+                model.discriminator.requires_grad_(True)
+                model.mapping_ema.requires_grad_(True)
+                model.synthesis_ema.requires_grad_(True)
+                # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
+                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是StyleGAN2ADA的bug!
+                # YOLOX中的写法是正确的.
+                model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping.requires_grad_(False)
+                model.synthesis.requires_grad_(False)
+                model.discriminator.requires_grad_(False)
+                model.mapping_ema.requires_grad_(False)
+                model.synthesis_ema.requires_grad_(False)
+            model.is_distributed = self.is_distributed
+
             learning_rate = self.exp.basic_lr_per_img * self.args.batch_size
             beta1 = self.exp.optimizer_cfg['generator']['beta1']
             beta2 = self.exp.optimizer_cfg['generator']['beta2']
@@ -190,9 +230,6 @@ class Trainer:
             self.optimizers['optimizer_G'] = self.optimizer_G
             self.optimizers['optimizer_D'] = self.optimizer_D
 
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
-
 
             self.train_loader = self.exp.get_data_loader(
                 batch_size=self.args.batch_size,
@@ -222,7 +259,9 @@ class Trainer:
 
             if self.args.occupy:
                 occupy_mem(self.local_rank)
-
+        elif self.archi_name == 'StyleGANv3':
+            # StyleGANv2ADA中,模型先转DDP模型,再创建优化器实例;
+            # YOLOX中,先创建优化器实例,模型再转DDP模型.哪种写法对呢???
             if self.is_distributed:
                 # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
                 model.mapping.requires_grad_(True)
@@ -231,8 +270,8 @@ class Trainer:
                 model.mapping_ema.requires_grad_(True)
                 model.synthesis_ema.requires_grad_(True)
                 # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
-                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
-                # 所以这里将参数device_ids改成StyleGAN2ADA中的self.device
+                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是StyleGAN2ADA的bug!
+                # YOLOX中的写法是正确的.
                 model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
                 model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
                 model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
@@ -244,7 +283,7 @@ class Trainer:
                 model.mapping_ema.requires_grad_(False)
                 model.synthesis_ema.requires_grad_(False)
             model.is_distributed = self.is_distributed
-        elif self.archi_name == 'StyleGANv3':
+
             learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
             learning_rate_d = self.exp.basic_dlr_per_img * self.args.batch_size
             beta1 = self.exp.optimizer_cfg['generator']['beta1']
@@ -286,20 +325,6 @@ class Trainer:
             self.optimizers['optimizer_G'] = self.optimizer_G
             self.optimizers['optimizer_D'] = self.optimizer_D
 
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
-            resume = False
-            if self.args.resume:
-                resume = True
-            else:
-                if self.args.ckpt is not None:
-                    resume = True
-            if resume:
-                # 需要修改配置
-                model.ada_kimg = 100        # Make ADA react faster at the beginning.
-                model.ema_rampup = None     # Disable EMA rampup.
-                model.blur_init_sigma = 0   # Disable blur rampup.
-
 
             self.train_loader = self.exp.get_data_loader(
                 batch_size=self.args.batch_size,
@@ -329,28 +354,6 @@ class Trainer:
 
             if self.args.occupy:
                 occupy_mem(self.local_rank)
-
-            if self.is_distributed:
-                # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
-                model.mapping.requires_grad_(True)
-                model.synthesis.requires_grad_(True)
-                model.discriminator.requires_grad_(True)
-                model.mapping_ema.requires_grad_(True)
-                model.synthesis_ema.requires_grad_(True)
-                # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
-                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是YOLOX的bug!
-                # 所以这里将参数device_ids改成StyleGAN2ADA中的self.device
-                model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping.requires_grad_(False)
-                model.synthesis.requires_grad_(False)
-                model.discriminator.requires_grad_(False)
-                model.mapping_ema.requires_grad_(False)
-                model.synthesis_ema.requires_grad_(False)
-            model.is_distributed = self.is_distributed
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
