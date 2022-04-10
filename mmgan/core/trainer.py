@@ -48,6 +48,7 @@ class Trainer:
         self.amp_training = args.fp16
         self.scaler = torch.cuda.amp.GradScaler(enabled=args.fp16)
         self.is_distributed = get_world_size() > 1
+        self.world_size = get_world_size()
         self.rank = get_rank()
         self.local_rank = get_local_rank()
 
@@ -109,7 +110,7 @@ class Trainer:
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             self.model.setup_input(data)
-            outputs = self.model.train_iter(self.optimizers, self.rank)
+            outputs = self.model.train_iter(self.optimizers, self.rank, self.world_size)
 
 
             iter_end_time = time.time()
@@ -136,8 +137,8 @@ class Trainer:
         torch.cuda.set_device(self.local_rank)
         if self.archi_name == 'StyleGANv2ADA':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
-            sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
-            training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
+            sync_device = torch.device('cuda', self.local_rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.local_rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
 
@@ -158,8 +159,8 @@ class Trainer:
             model = self.resume_train(model)
         elif self.archi_name == 'StyleGANv3':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
-            sync_device = torch.device('cuda', self.rank) if self.is_distributed else None
-            training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
+            sync_device = torch.device('cuda', self.local_rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.local_rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
 

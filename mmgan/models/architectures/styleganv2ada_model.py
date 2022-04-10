@@ -199,6 +199,7 @@ class StyleGANv2ADAModel:
         do_Dr1   = (phase in ['Dreg', 'Dboth']) and (self.r1_gamma != 0)
 
         loss_numpy = {}
+        aaaaaaaa1 = training_stats._counters
 
         # Gmain: Maximize logits for generated images.
         if do_Gmain:
@@ -409,7 +410,7 @@ class StyleGANv2ADAModel:
                         print_diff(dic, phase + ' d_b_grad', d_b_grad)
         return loss_numpy
 
-    def train_iter(self, optimizers=None, rank=0):
+    def train_iter(self, optimizers=None, rank=0, world_size=1):
         device = self.device
         with torch.autograd.profiler.record_function('data_fetch'):
             phase_real_img = self.input[0]
@@ -445,11 +446,11 @@ class StyleGANv2ADAModel:
 
 
             phases = self.phases
-            batch_size = phase_real_img.shape[0]
+            batch_gpu = phase_real_img.shape[0]  # 一张显卡上的批大小
 
             all_gen_z = None
-            num_gpus = 1  # 显卡数量
-            batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
+            num_gpus = world_size  # 显卡数量
+            batch_size = batch_gpu * num_gpus
             if self.z_dim > 0:
                 all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
                 if self.align_grad:
