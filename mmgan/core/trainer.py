@@ -140,6 +140,18 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
+
+            # 为了让输出、梯度更加接近原版仓库（对齐），这3句不能省.
+            # torch.backends.cudnn.benchmark    是否允许CUDNN自己寻找较快的卷积实现, 不同device, 不同的卷积, 都会带来卷积实现的速度和精度的差异,
+            # 若网络结构非动态, 且数据大小不变化, 可设置为 True, 反之, 应设为 False, 否则反而寻找快速实现会暂用大量时间.
+            # torch.backends.cuda.matmul.allow_tf32   是否允许使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            # torch.backends.cudnn.allow_tf32         是否允许CUDNN使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            torch.backends.cudnn.benchmark = True          # Improves training speed.
+            torch.backends.cuda.matmul.allow_tf32 = False  # Allow PyTorch to internally use tf32 for matmul
+            torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
+
             model = self.exp.get_model(self.device, self.rank)
 
             # value of epoch will be set in `resume_train`
@@ -150,6 +162,18 @@ class Trainer:
             training_stats.init_multiprocessing(rank=self.rank, sync_device=sync_device)
             # if rank != 0:
             #     custom_ops.verbosity = 'none'
+
+            # 为了让输出、梯度更加接近原版仓库（对齐），这3句不能省.
+            # torch.backends.cudnn.benchmark    是否允许CUDNN自己寻找较快的卷积实现, 不同device, 不同的卷积, 都会带来卷积实现的速度和精度的差异,
+            # 若网络结构非动态, 且数据大小不变化, 可设置为 True, 反之, 应设为 False, 否则反而寻找快速实现会暂用大量时间.
+            # torch.backends.cuda.matmul.allow_tf32   是否允许使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            # torch.backends.cudnn.allow_tf32         是否允许CUDNN使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            torch.backends.cudnn.benchmark = True          # Improves training speed.
+            torch.backends.cuda.matmul.allow_tf32 = False  # Allow PyTorch to internally use tf32 for matmul
+            torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
+
             model = self.exp.get_model(self.device, self.rank, self.args.batch_size)
 
             # value of epoch will be set in `resume_train`
