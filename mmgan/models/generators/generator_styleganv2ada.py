@@ -569,12 +569,11 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
     def forward(self, z, c, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
         # Embed, normalize, and concat inputs.
         x = None
-        with torch.autograd.profiler.record_function('input'):
-            if self.z_dim > 0:
-                x = normalize_2nd_moment(z.to(torch.float32))
-            if self.c_dim > 0:
-                y = normalize_2nd_moment(self.embed(c.to(torch.float32)))
-                x = torch.cat([x, y], dim=1) if x is not None else y
+        if self.z_dim > 0:
+            x = normalize_2nd_moment(z.to(torch.float32))
+        if self.c_dim > 0:
+            y = normalize_2nd_moment(self.embed(c.to(torch.float32)))
+            x = torch.cat([x, y], dim=1) if x is not None else y
 
         # Main layers.
         for idx in range(self.num_layers):
@@ -583,22 +582,19 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
 
         # Update moving average of W.
         if self.w_avg_beta is not None and self.training and not skip_w_avg_update:
-            with torch.autograd.profiler.record_function('update_w_avg'):
-                self.w_avg.copy_(x.detach().mean(dim=0).lerp(self.w_avg, self.w_avg_beta))
+            self.w_avg.copy_(x.detach().mean(dim=0).lerp(self.w_avg, self.w_avg_beta))
 
         # Broadcast.
         if self.num_ws is not None:
-            with torch.autograd.profiler.record_function('broadcast'):
-                x = x.unsqueeze(1).repeat([1, self.num_ws, 1])
+            x = x.unsqueeze(1).repeat([1, self.num_ws, 1])
 
         # Apply truncation.
         if truncation_psi != 1:
-            with torch.autograd.profiler.record_function('truncate'):
-                assert self.w_avg_beta is not None
-                if self.num_ws is None or truncation_cutoff is None:
-                    x = self.w_avg.lerp(x, truncation_psi)
-                else:
-                    x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
+            assert self.w_avg_beta is not None
+            if self.num_ws is None or truncation_cutoff is None:
+                x = self.w_avg.lerp(x, truncation_psi)
+            else:
+                x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
         return x
 
 def modulated_conv2d(
@@ -864,13 +860,12 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
 
     def forward(self, ws, **block_kwargs):
         block_ws = []
-        with torch.autograd.profiler.record_function('split_ws'):
-            ws = ws.to(torch.float32)
-            w_idx = 0
-            for res in self.block_resolutions:
-                block = getattr(self, f'b{res}')
-                block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
-                w_idx += block.num_conv
+        ws = ws.to(torch.float32)
+        w_idx = 0
+        for res in self.block_resolutions:
+            block = getattr(self, f'b{res}')
+            block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
+            w_idx += block.num_conv
 
         x = img = None
         for res, cur_ws in zip(self.block_resolutions, block_ws):

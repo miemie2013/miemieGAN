@@ -581,13 +581,25 @@ class Trainer:
             save_model = self.model
             logger.info("Save weights to {}".format(self.file_name))
             if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
+                if self.is_distributed:
+                    synthesis = save_model.synthesis.module
+                    synthesis_ema = save_model.synthesis_ema.module
+                    mapping = save_model.mapping.module
+                    mapping_ema = save_model.mapping_ema.module
+                    discriminator = save_model.discriminator.module
+                else:
+                    synthesis = save_model.synthesis
+                    synthesis_ema = save_model.synthesis_ema
+                    mapping = save_model.mapping
+                    mapping_ema = save_model.mapping_ema
+                    discriminator = save_model.discriminator
                 ckpt_state = {
                     "start_epoch": self.epoch + 1,
-                    "synthesis": save_model.synthesis.state_dict(),
-                    "synthesis_ema": save_model.synthesis_ema.state_dict(),
-                    "mapping": save_model.mapping.state_dict(),
-                    "mapping_ema": save_model.mapping_ema.state_dict(),
-                    "discriminator": save_model.discriminator.state_dict(),
+                    "synthesis": synthesis.state_dict(),
+                    "synthesis_ema": synthesis_ema.state_dict(),
+                    "mapping": mapping.state_dict(),
+                    "mapping_ema": mapping_ema.state_dict(),
+                    "discriminator": discriminator.state_dict(),
                     "optimizer_G": self.optimizer_G.state_dict(),
                     "optimizer_D": self.optimizer_D.state_dict(),
                 }
