@@ -268,7 +268,7 @@ class StyleGANv2ADAModel:
                 if self.align_grad:
                     print_diff(dic, phase + ' pl_grads', pl_grads)
                 if self.pl_mean is None:
-                    self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=pl_lengths.device)
+                    self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=self.device)
                 pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
                 self.pl_mean.copy_(pl_mean.detach())
 
@@ -410,68 +410,69 @@ class StyleGANv2ADAModel:
         return loss_numpy
 
     def train_iter(self, optimizers=None, rank=0):
-        phase_real_img = self.input[0]
-        phase_real_c = self.input[1]
-        phases_all_gen_c = self.input[2]
         device = self.device
+        with torch.autograd.profiler.record_function('data_fetch'):
+            phase_real_img = self.input[0]
+            phase_real_c = self.input[1]
+            phases_all_gen_c = self.input[2]
 
-        if self.batch_idx == 0:
-            '''
-            假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
-            即总的批大小是8，每卡批大小是4，那么这里
-            phase_real_img.shape = [4, 3, 32, 32]
-            phase_real_c.shape   = [4, 0]
-            batch_gpu            = 4
-            即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
-            '''
-            print('rank =', rank)
-            print('phase_real_img.shape =', phase_real_img.shape)
-            print('phase_real_c.shape =', phase_real_c.shape)
+            if self.batch_idx == 0:
+                '''
+                假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
+                即总的批大小是8，每卡批大小是4，那么这里
+                phase_real_img.shape = [4, 3, 32, 32]
+                phase_real_c.shape   = [4, 0]
+                batch_gpu            = 4
+                即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
+                '''
+                print('rank =', rank)
+                print('phase_real_img.shape =', phase_real_img.shape)
+                print('phase_real_c.shape =', phase_real_c.shape)
 
-        # 对齐梯度用
-        dic2 = None
-        if self.align_grad:
-            print('======================== batch%.5d.npz ========================'%self.batch_idx)
-            npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
-            isDebug = True if sys.gettrace() else False
-            if isDebug:
-                npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
-            dic2 = np.load(npz_path)
-            aaaaaaaaa = dic2['phase_real_img']
-            phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
-
-        phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
-
-
-        phases = self.phases
-        batch_size = phase_real_img.shape[0]
-
-        all_gen_z = None
-        num_gpus = 1  # 显卡数量
-        batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
-        if self.z_dim > 0:
-            all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
+            # 对齐梯度用
+            dic2 = None
             if self.align_grad:
-                all_gen_z = torch.Tensor(dic2['all_gen_z']).to(device).to(torch.float32)
-        else:
-            all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
-        phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
-        all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in phases_all_gen_z]  # 咩酱：训练的4个阶段每个gpu的噪声
+                print('======================== batch%.5d.npz ========================'%self.batch_idx)
+                npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+                isDebug = True if sys.gettrace() else False
+                if isDebug:
+                    npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+                dic2 = np.load(npz_path)
+                aaaaaaaaa = dic2['phase_real_img']
+                phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
 
-        c_dim = phases_all_gen_c[0].shape[1]
-        all_gen_c = None
-        if c_dim > 0:
-            all_gen_c = [phase_gen_c.to(device).split(batch_gpu) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
-        else:
-            all_gen_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
+            phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
 
-        phase_real_img = phase_real_img.split(batch_gpu)
 
-        c_dim = phase_real_c.shape[1]
-        if c_dim > 0:
-            phase_real_c = phase_real_c.to(device).split(batch_gpu)
-        else:
-            phase_real_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
+            phases = self.phases
+            batch_size = phase_real_img.shape[0]
+
+            all_gen_z = None
+            num_gpus = 1  # 显卡数量
+            batch_gpu = batch_size // num_gpus  # 一张显卡上的批大小
+            if self.z_dim > 0:
+                all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
+                if self.align_grad:
+                    all_gen_z = torch.Tensor(dic2['all_gen_z']).to(device).to(torch.float32)
+            else:
+                all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
+            phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
+            all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in phases_all_gen_z]  # 咩酱：训练的4个阶段每个gpu的噪声
+
+            c_dim = phases_all_gen_c[0].shape[1]
+            all_gen_c = None
+            if c_dim > 0:
+                all_gen_c = [phase_gen_c.to(device).split(batch_gpu) for phase_gen_c in phases_all_gen_c]  # 咩酱：训练的4个阶段每个gpu的类别
+            else:
+                all_gen_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
+
+            phase_real_img = phase_real_img.split(batch_gpu)
+
+            c_dim = phase_real_c.shape[1]
+            if c_dim > 0:
+                phase_real_c = phase_real_c.to(device).split(batch_gpu)
+            else:
+                phase_real_c = [[None for _2 in range(num_gpus)] for _1 in range(len(phases))]
 
         # Execute training phases.  咩酱：训练的4个阶段。一个批次的图片训练4个阶段。
         loss_numpys = dict()
