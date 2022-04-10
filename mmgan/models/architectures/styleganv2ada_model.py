@@ -136,8 +136,6 @@ class StyleGANv2ADAModel:
         self.ada_stats = None
         if self.adjust_p:
             self.ada_stats = training_stats.Collector(regex='Loss/signs/real')
-        # self.stats_collector = training_stats.Collector(regex='.*')
-        self.Loss_signs_real = []
 
         self.align_grad = False
         self.align_grad = True
@@ -341,8 +339,6 @@ class StyleGANv2ADAModel:
             real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
             training_stats.report('Loss/scores/real', real_logits)
             training_stats.report('Loss/signs/real', real_logits.sign())
-            # if self.adjust_p and self.augment_pipe is not None:
-            #     self.Loss_signs_real.append(real_logits.sign().cpu().detach().numpy())
             if self.align_grad:
                 print_diff(dic, phase + ' real_logits', real_logits)
 
@@ -407,18 +403,20 @@ class StyleGANv2ADAModel:
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
-        if self.batch_idx == 0:
-            '''
-            假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
-            即总的批大小是8，每卡批大小是4，那么这里
-            phase_real_img.shape = [4, 3, 32, 32]
-            phase_real_c.shape   = [4, 0]
-            batch_gpu            = 4
-            即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
-            '''
-            print('rank =', rank)
-            print('phase_real_img.shape =', phase_real_img.shape)
-            print('phase_real_c.shape =', phase_real_c.shape)
+        if self.align_grad:
+            if self.batch_idx == 0:
+                '''
+                假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
+                即总的批大小是8，每卡批大小是4，那么这里
+                phase_real_img.shape = [4, 3, 32, 32]
+                phase_real_c.shape   = [4, 0]
+                batch_gpu            = 4
+                即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
+                '''
+                print('rank =', rank)
+                print('world_size =', world_size)
+                print('phase_real_img.shape =', phase_real_img.shape)
+                print('phase_real_c.shape =', phase_real_c.shape)
 
         # 对齐梯度用
         dic2 = None
@@ -555,7 +553,6 @@ class StyleGANv2ADAModel:
         # Execute ADA heuristic.
         if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
             # self.ada_interval个迭代中，real_logits.sign()的平均值。
-            # Loss_signs_real_mean = np.mean(np.concatenate(self.Loss_signs_real, 0))
             self.ada_stats.update()
             Loss_signs_real_mean = self.ada_stats['Loss/signs/real']
 
@@ -567,7 +564,6 @@ class StyleGANv2ADAModel:
                 print('diff=%.6f (%s)' % (ddd, kkk))
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=device)))
-            self.Loss_signs_real = []
 
         return loss_numpys
 
