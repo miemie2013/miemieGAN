@@ -485,10 +485,10 @@ class StyleGANv2ADAModel:
                 # for param_group in optimizers['optimizer_D'].param_groups:
                 #     param_group["params"][0].requires_grad = True
 
-            # 梯度累加。一个总的批次的图片分开{显卡数量}次遍历。
+            # 梯度累加。不管多卡还是单卡，这个for循环只会循环1次。
             # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
             for round_idx, (real_img, real_c, gen_z, gen_c) in enumerate(zip(phase_real_img, phase_real_c, phase_gen_z, phase_gen_c)):
-                sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)   # 咩酱：右边的式子结果一定是0。即只有0号gpu做同步。这是梯度累加的固定写法。
+                sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)   # 咩酱：右边的式子结果一定是0。sync一定是True
                 gain = phase.interval     # 咩酱：即上文提到的训练间隔。
 
                 # 梯度累加（变相增大批大小）。
@@ -522,8 +522,6 @@ class StyleGANv2ADAModel:
                 phase.end_event.record(torch.cuda.current_stream(device))
 
         # compute moving average of network parameters。指数滑动平均
-        # self.mapping_ema.requires_grad_(False)
-        # self.synthesis_ema.requires_grad_(False)
         ema_kimg = self.ema_kimg
         ema_nimg = ema_kimg * 1000
         ema_rampup = self.ema_rampup
