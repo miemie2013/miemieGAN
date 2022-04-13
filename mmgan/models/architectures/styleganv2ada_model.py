@@ -13,8 +13,8 @@ from mmgan.utils.training_stats import EasyDict
 
 
 @contextlib.contextmanager
-def ddp_sync(module, sync, is_distributed):
-    if sync or not is_distributed:
+def ddp_sync(module, sync):
+    if sync or not isinstance(module, torch.nn.parallel.DistributedDataParallel):
         yield
     else:
         with module.no_sync():
@@ -163,14 +163,14 @@ class StyleGANv2ADAModel:
         除了self.augment_pipe，其它3个 self.G_mapping、self.G_synthesis、self.D 都是DDP模型。
         只有DDP模型才能使用with module.no_sync():
         '''
-        with ddp_sync(self.mapping, sync, self.is_distributed):
+        with ddp_sync(self.mapping, sync):
             ws = self.mapping(z, c)
             if self.style_mixing_prob > 0:
                 cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
                 cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
                 ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
 
-        with ddp_sync(self.synthesis, sync, self.is_distributed):
+        with ddp_sync(self.synthesis, sync):
             img = self.synthesis(ws)
         return img, ws
 
@@ -183,7 +183,7 @@ class StyleGANv2ADAModel:
             # img = self.augment_pipe(img)
             debug_percentile = 0.7
             img = self.augment_pipe(img, debug_percentile)
-        with ddp_sync(self.discriminator, sync, self.is_distributed):
+        with ddp_sync(self.discriminator, sync):
             logits = self.discriminator(img, c)
         return logits
 
