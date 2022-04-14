@@ -486,7 +486,7 @@ class StyleGANv2ADAModel:
                 #     param_group["params"][0].requires_grad = True
 
             # 梯度累加。不管多卡还是单卡，这个for循环只会循环1次。
-            # Accumulate gradients over multiple rounds.  咩酱：遍历每一个gpu上的批次图片。这样写好奇葩啊！round_idx是gpu_id
+            # Accumulate gradients over multiple rounds.
             for round_idx, (real_img, real_c, gen_z, gen_c) in enumerate(zip(phase_real_img, phase_real_c, phase_gen_z, phase_gen_c)):
                 sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)   # 咩酱：右边的式子结果一定是0。sync一定是True
                 gain = phase.interval     # 咩酱：即上文提到的训练间隔。
