@@ -5,6 +5,8 @@
 import argparse
 import os
 import time
+
+import numpy as np
 from loguru import logger
 
 import cv2
@@ -114,8 +116,12 @@ def main(exp, args):
     # 算法名字
     archi_name = exp.archi_name
 
+    device = torch.device('cpu')
+    if args.device == "gpu":
+        device = torch.device('cuda:0')
+
     if archi_name == 'StyleGANv2ADA':
-        model = exp.get_model()
+        model = exp.get_model(device, 0)
     elif archi_name == 'StyleGANv3':
         model = exp.get_model(batch_size=1)
         ckpt_state = {
@@ -128,10 +134,18 @@ def main(exp, args):
 
 
     if args.device == "gpu":
-        model.cuda()
+        model.synthesis.cuda()
+        model.synthesis_ema.cuda()
+        model.mapping.cuda()
+        model.mapping_ema.cuda()
+        model.discriminator.cuda()
         if args.fp16:
             model.half()  # to FP16
-    model.eval()
+    model.synthesis.eval()
+    model.synthesis_ema.eval()
+    model.mapping.eval()
+    model.mapping_ema.eval()
+    model.discriminator.eval()
 
     if args.demo == "image":
         # 不同的算法输入不同，新增算法时这里也要增加elif
@@ -143,7 +157,11 @@ def main(exp, args):
                 ckpt_file = args.ckpt
             logger.info("loading checkpoint")
             ckpt = torch.load(ckpt_file, map_location="cpu")
-            model = load_ckpt(model, ckpt["model"])
+            model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+            model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+            model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+            model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+            model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
             logger.info("loaded checkpoint done.")
 
             seeds = args.seeds
@@ -154,6 +172,8 @@ def main(exp, args):
             for seed in seeds:
                 z = np.random.RandomState(seed).randn(1, model.z_dim)
                 z = torch.from_numpy(z)
+                seed = np.array([seed]).astype(np.int32)
+                seed = torch.from_numpy(seed)
                 z = z.float()
                 if args.device == "gpu":
                     z = z.cuda()
@@ -161,16 +181,17 @@ def main(exp, args):
                         z = z.half()  # to FP16
                 data = {
                     'z': z,
+                    'seed': seed,
                 }
                 model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr = model.test_iter()
+                    img_bgr, seed_i = model.test_iter()
                     if args.save_result:
                         save_folder = os.path.join(
                             vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
                         )
                         os.makedirs(save_folder, exist_ok=True)
-                        save_file_name = os.path.join(save_folder, f'seed{seed:08d}.png')
+                        save_file_name = os.path.join(save_folder, f'seed{seed_i:08d}.png')
                         logger.info("Saving generation result in {}".format(save_file_name))
                         cv2.imwrite(save_file_name, img_bgr)
 
