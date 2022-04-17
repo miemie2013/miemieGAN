@@ -9,6 +9,65 @@ import numpy as np
 import math
 import scipy
 import scipy.signal
+import warnings
+
+
+class suppress_tracer_warnings(warnings.catch_warnings):
+    def __enter__(self):
+        super().__enter__()
+        warnings.simplefilter('ignore', category=torch.jit.TracerWarning)
+        return self
+
+"""Fused multiply-add, with slightly faster gradients than `torch.addcmul()`."""
+
+#----------------------------------------------------------------------------
+
+def fma(a, b, c): # => a * b + c
+    return _FusedMultiplyAdd.apply(a, b, c)
+
+#----------------------------------------------------------------------------
+
+class _FusedMultiplyAdd(torch.autograd.Function): # a * b + c
+    @staticmethod
+    def forward(ctx, a, b, c): # pylint: disable=arguments-differ
+        out = torch.addcmul(c, a, b)
+        ctx.save_for_backward(a, b)
+        ctx.c_shape = c.shape
+        return out
+
+    @staticmethod
+    def backward(ctx, dout): # pylint: disable=arguments-differ
+        a, b = ctx.saved_tensors
+        c_shape = ctx.c_shape
+        da = None
+        db = None
+        dc = None
+
+        if ctx.needs_input_grad[0]:
+            da = _unbroadcast(dout * b, a.shape)
+
+        if ctx.needs_input_grad[1]:
+            db = _unbroadcast(dout * a, b.shape)
+
+        if ctx.needs_input_grad[2]:
+            dc = _unbroadcast(dout, c_shape)
+
+        return da, db, dc
+
+#----------------------------------------------------------------------------
+
+def _unbroadcast(x, shape):
+    extra_dims = x.ndim - len(shape)
+    assert extra_dims >= 0
+    dim = [i for i in range(x.ndim) if x.shape[i] > 1 and (i < extra_dims or shape[i - extra_dims] == 1)]
+    if len(dim):
+        x = x.sum(dim=dim, keepdim=True)
+    if extra_dims:
+        x = x.reshape(-1, *x.shape[extra_dims+1:])
+    assert x.shape == shape
+    return x
+
+#----------------------------------------------------------------------------
 
 
 
@@ -575,14 +634,16 @@ def modulated_conv2d(
         x = x * styles.to(x.dtype).reshape((batch_size, -1, 1, 1))
         x = conv2d_resample(x=x, w=weight.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, flip_weight=flip_weight)
         if demodulate and noise is not None:
-            x = x * dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1)) + noise.to(x.dtype)
+            x = fma(x, dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1)), noise.to(x.dtype))
         elif demodulate:
             x = x * dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1))
         elif noise is not None:
-            x = x + noise.to(x.dtype)
+            x = x.add_(noise.to(x.dtype))
         return x
 
     # Execute as one fused op using grouped convolution.
+    with suppress_tracer_warnings(): # this value will be treated as a constant
+        batch_size = int(batch_size)
     x = x.reshape((1, -1, *x.shape[2:]))
     w = w.reshape((-1, in_channels, kh, kw))
     x = conv2d_resample(x=x, w=w.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
@@ -613,7 +674,7 @@ class SynthesisLayer(nn.Module):
         self.resolution = resolution
         self.up = up
         self.use_noise = use_noise
-        self.use_noise = False
+        # self.use_noise = False
         self.activation = activation
         self.conv_clamp = conv_clamp
         self.register_buffer('resample_filter', upfirdn2d_setup_filter(resample_filter))
@@ -727,7 +788,8 @@ class SynthesisBlock(nn.Module):
         dtype = torch.float16 if self.use_fp16 and not force_fp32 else torch.float32
         memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
         if fused_modconv is None:
-            fused_modconv = (not self.training) and (dtype == torch.float32 or int(x.shape[0]) == 1)
+            with suppress_tracer_warnings(): # this value will be treated as a constant
+                fused_modconv = (not self.training) and (dtype == torch.float32 or int(x.shape[0]) == 1)
 
         # Input.
         if self.in_channels == 0:
@@ -743,7 +805,7 @@ class SynthesisBlock(nn.Module):
             y = self.skip(x, gain=np.sqrt(0.5))
             x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
             x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, gain=np.sqrt(0.5), **layer_kwargs)
-            x = y + x
+            x = y.add_(x)
         else:
             x = self.conv0(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
             x = self.conv1(x, next(w_iter), fused_modconv=fused_modconv, **layer_kwargs)
@@ -754,7 +816,7 @@ class SynthesisBlock(nn.Module):
         if self.is_last or self.architecture == 'skip':
             y = self.torgb(x, next(w_iter), fused_modconv=fused_modconv)
             y = y.to(dtype=torch.float32, memory_format=torch.contiguous_format)
-            img = img + y if img is not None else y
+            img = img.add_(y) if img is not None else y
 
         assert x.dtype == dtype
         assert img is None or img.dtype == torch.float32
@@ -787,7 +849,7 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
             in_channels = channels_dict[res // 2] if res > 4 else 0
             out_channels = channels_dict[res]
             use_fp16 = (res >= fp16_resolution)
-            use_fp16 = False
+            # use_fp16 = False
             is_last = (res == self.img_resolution)
             block = SynthesisBlock(in_channels, out_channels, w_dim=w_dim, resolution=res,
                 img_channels=img_channels, is_last=is_last, use_fp16=use_fp16, **block_kwargs)
@@ -798,13 +860,12 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
 
     def forward(self, ws, **block_kwargs):
         block_ws = []
-        with torch.autograd.profiler.record_function('split_ws'):
-            ws = ws.to(torch.float32)
-            w_idx = 0
-            for res in self.block_resolutions:
-                block = getattr(self, f'b{res}')
-                block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
-                w_idx += block.num_conv
+        ws = ws.to(torch.float32)
+        w_idx = 0
+        for res in self.block_resolutions:
+            block = getattr(self, f'b{res}')
+            block_ws.append(ws.narrow(1, w_idx, block.num_conv + block.num_torgb))
+            w_idx += block.num_conv
 
         x = img = None
         for res, cur_ws in zip(self.block_resolutions, block_ws):

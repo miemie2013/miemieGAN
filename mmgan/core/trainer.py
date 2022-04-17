@@ -30,6 +30,7 @@ from mmgan.utils import (
     occupy_mem,
     save_checkpoint,
     setup_logger,
+    training_stats,
     synchronize
 )
 
@@ -47,8 +48,12 @@ class Trainer:
         self.amp_training = args.fp16
         self.scaler = torch.cuda.amp.GradScaler(enabled=args.fp16)
         self.is_distributed = get_world_size() > 1
+        self.world_size = get_world_size()
         self.rank = get_rank()
         self.local_rank = get_local_rank()
+
+        # 注意!!!YOLOX中每个模型的device是local_rank,但是StyleGAN2ADA中是rank!
+        # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是StyleGAN2ADA的bug!
         self.device = "cuda:{}".format(self.local_rank)
 
         # data/dataloader related attr
@@ -105,7 +110,7 @@ class Trainer:
 
             data = [phase_real_img, phase_real_c, phases_all_gen_c]
             self.model.setup_input(data)
-            outputs = self.model.train_iter(self.optimizers, self.rank)
+            outputs = self.model.train_iter(self.optimizers, self.rank, self.world_size)
 
 
             iter_end_time = time.time()
@@ -131,95 +136,69 @@ class Trainer:
         # model related init
         torch.cuda.set_device(self.local_rank)
         if self.archi_name == 'StyleGANv2ADA':
-            model = self.exp.get_model()
-            model.synthesis.to(self.device)
-            model.synthesis_ema.to(self.device)
-            model.mapping.to(self.device)
-            model.mapping_ema.to(self.device)
-            model.discriminator.to(self.device)
-            model.augment_pipe.to(self.device)
+            # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
+            sync_device = torch.device('cuda', self.local_rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.local_rank, sync_device=sync_device)
+            # if rank != 0:
+            #     custom_ops.verbosity = 'none'
+
+            # 为了让输出、梯度更加接近原版仓库（对齐），这3句不能省.
+            # torch.backends.cudnn.benchmark    是否允许CUDNN自己寻找较快的卷积实现, 不同device, 不同的卷积, 都会带来卷积实现的速度和精度的差异,
+            # 若网络结构非动态, 且数据大小不变化, 可设置为 True, 反之, 应设为 False, 否则反而寻找快速实现会暂用大量时间.
+            # torch.backends.cuda.matmul.allow_tf32   是否允许使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            # torch.backends.cudnn.allow_tf32         是否允许CUDNN使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            torch.backends.cudnn.benchmark = True          # Improves training speed.
+            torch.backends.cuda.matmul.allow_tf32 = False  # Allow PyTorch to internally use tf32 for matmul
+            torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
+
+            model = self.exp.get_model(self.device, self.rank)
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
         elif self.archi_name == 'StyleGANv3':
-            model = self.exp.get_model(self.args.batch_size)
-            model.synthesis.to(self.device)
-            model.synthesis_ema.to(self.device)
-            model.mapping.to(self.device)
-            model.mapping_ema.to(self.device)
-            model.discriminator.to(self.device)
-            model.augment_pipe.to(self.device)
+            # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
+            sync_device = torch.device('cuda', self.local_rank) if self.is_distributed else None
+            training_stats.init_multiprocessing(rank=self.local_rank, sync_device=sync_device)
+            # if rank != 0:
+            #     custom_ops.verbosity = 'none'
+
+            # 为了让输出、梯度更加接近原版仓库（对齐），这3句不能省.
+            # torch.backends.cudnn.benchmark    是否允许CUDNN自己寻找较快的卷积实现, 不同device, 不同的卷积, 都会带来卷积实现的速度和精度的差异,
+            # 若网络结构非动态, 且数据大小不变化, 可设置为 True, 反之, 应设为 False, 否则反而寻找快速实现会暂用大量时间.
+            # torch.backends.cuda.matmul.allow_tf32   是否允许使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            # torch.backends.cudnn.allow_tf32         是否允许CUDNN使用 TensorFloat32 (TF32) 张量核,
+            # 设置为 True 会提升速度, 但精度会有损失, 仅ampere 架构GPU支持, 对于不支持的GPU, 此设置不奏效, 不影响
+            torch.backends.cudnn.benchmark = True          # Improves training speed.
+            torch.backends.cuda.matmul.allow_tf32 = False  # Allow PyTorch to internally use tf32 for matmul
+            torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
+
+            model = self.exp.get_model(self.device, self.rank, self.args.batch_size)
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
+            resume = False
+            if self.args.resume:
+                resume = True
+            else:
+                if self.args.ckpt is not None:
+                    resume = True
+            if resume:
+                # 需要修改配置
+                model.ada_kimg = 100  # Make ADA react faster at the beginning.
+                model.ema_rampup = None  # Disable EMA rampup.
+                model.blur_init_sigma = 0  # Disable blur rampup.
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
         # 是否进行梯度裁剪
         self.need_clip = False
 
-        if self.archi_name == 'StyleGANv2ADA':
-            learning_rate = self.exp.basic_lr_per_img * self.args.batch_size
-            beta1 = self.exp.optimizer_cfg['generator']['beta1']
-            beta2 = self.exp.optimizer_cfg['generator']['beta2']
-
-            G_reg_interval = self.exp.G_reg_interval
-            D_reg_interval = self.exp.D_reg_interval
-
-            for name, reg_interval in [('G', G_reg_interval), ('D', D_reg_interval)]:
-                if reg_interval is None:
-                    if name == 'G':
-                        self.base_lr_G = learning_rate
-                    elif name == 'D':
-                        self.base_lr_D = learning_rate
-                else:  # Lazy regularization.
-                    mb_ratio = reg_interval / (reg_interval + 1)
-                    new_lr = learning_rate * mb_ratio
-                    new_beta1 = beta1 ** mb_ratio
-                    new_beta2 = beta2 ** mb_ratio
-                if name == 'G':
-                    self.base_lr_G = new_lr
-                    self.exp.optimizer_cfg['generator']['beta1'] = new_beta1
-                    self.exp.optimizer_cfg['generator']['beta2'] = new_beta2
-                elif name == 'D':
-                    self.base_lr_D = new_lr
-                    self.exp.optimizer_cfg['discriminator']['beta1'] = new_beta1
-                    self.exp.optimizer_cfg['discriminator']['beta2'] = new_beta2
-
-            # solver related init
-            self.optimizers = {}
-            self.optimizer_G = self.exp.get_optimizer(self.base_lr_G, 'G')
-            self.optimizer_D = self.exp.get_optimizer(self.base_lr_D, 'D')
-            self.optimizers['optimizer_G'] = self.optimizer_G
-            self.optimizers['optimizer_D'] = self.optimizer_D
-
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
-
-
-            self.train_loader = self.exp.get_data_loader(
-                batch_size=self.args.batch_size,
-                is_distributed=self.is_distributed,
-                cache_img=self.args.cache,
-            )
-            # 一轮的步数。
-            train_steps = self.exp.dataset.train_steps
-            # 一轮的图片数。
-            one_epoch_imgs = train_steps * self.args.batch_size
-            # 算出需要的训练轮数并写入。
-            self.exp.max_epoch = self.exp.kimgs * 1000 // one_epoch_imgs
-            if self.exp.kimgs * 1000 % one_epoch_imgs != 0:
-                self.exp.max_epoch += 1
-            self.max_epoch = self.exp.max_epoch
-
-            logger.info("init prefetcher, this might take one minute or less...")
-            self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
-
-            self.test_loader = self.exp.get_eval_loader(
-                batch_size=self.args.eval_batch_size,
-                is_distributed=self.is_distributed,
-            )
-
-            # max_iter means iters per epoch
-            self.max_iter = len(self.train_loader)
-
-            if self.args.occupy:
-                occupy_mem(self.local_rank)
-
+        if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
+            # StyleGANv2ADA中,模型先转DDP模型,再创建优化器实例;
+            # YOLOX中,先创建优化器实例,模型再转DDP模型.哪种写法对呢???
             if self.is_distributed:
                 # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
                 model.mapping.requires_grad_(True)
@@ -227,18 +206,21 @@ class Trainer:
                 model.discriminator.requires_grad_(True)
                 model.mapping_ema.requires_grad_(True)
                 model.synthesis_ema.requires_grad_(True)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
+                # 注意!!!YOLOX中初始化DDP模型的device_ids是self.local_rank,但是StyleGAN2ADA中是self.device(即self.rank)!
+                # 在单机多卡时,二者是一样的,但是多机多卡时,二者不一样!算是StyleGAN2ADA的bug!
+                # YOLOX中的写法是正确的.
+                model.mapping = DDP(model.mapping, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis = DDP(model.synthesis, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.discriminator = DDP(model.discriminator, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
+                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.device], broadcast_buffers=False, find_unused_parameters=True)
                 model.mapping.requires_grad_(False)
                 model.synthesis.requires_grad_(False)
                 model.discriminator.requires_grad_(False)
                 model.mapping_ema.requires_grad_(False)
                 model.synthesis_ema.requires_grad_(False)
             model.is_distributed = self.is_distributed
-        elif self.archi_name == 'StyleGANv3':
+
             learning_rate_g = self.exp.basic_glr_per_img * self.args.batch_size
             learning_rate_d = self.exp.basic_dlr_per_img * self.args.batch_size
             beta1 = self.exp.optimizer_cfg['generator']['beta1']
@@ -280,20 +262,6 @@ class Trainer:
             self.optimizers['optimizer_G'] = self.optimizer_G
             self.optimizers['optimizer_D'] = self.optimizer_D
 
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
-            resume = False
-            if self.args.resume:
-                resume = True
-            else:
-                if self.args.ckpt is not None:
-                    resume = True
-            if resume:
-                # 需要修改配置
-                model.ada_kimg = 100        # Make ADA react faster at the beginning.
-                model.ema_rampup = None     # Disable EMA rampup.
-                model.blur_init_sigma = 0   # Disable blur rampup.
-
 
             self.train_loader = self.exp.get_data_loader(
                 batch_size=self.args.batch_size,
@@ -323,25 +291,6 @@ class Trainer:
 
             if self.args.occupy:
                 occupy_mem(self.local_rank)
-
-            if self.is_distributed:
-                # 除了augment_pipe，其它4个 G.mapping、G.synthesis、D、G_ema 都是DDP模型。
-                model.mapping.requires_grad_(True)
-                model.synthesis.requires_grad_(True)
-                model.discriminator.requires_grad_(True)
-                model.mapping_ema.requires_grad_(True)
-                model.synthesis_ema.requires_grad_(True)
-                model.mapping = DDP(model.mapping, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis = DDP(model.synthesis, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.discriminator = DDP(model.discriminator, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping_ema = DDP(model.mapping_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.synthesis_ema = DDP(model.synthesis_ema, device_ids=[self.local_rank], broadcast_buffers=False, find_unused_parameters=True)
-                model.mapping.requires_grad_(False)
-                model.synthesis.requires_grad_(False)
-                model.discriminator.requires_grad_(False)
-                model.mapping_ema.requires_grad_(False)
-                model.synthesis_ema.requires_grad_(False)
-            model.is_distributed = self.is_distributed
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
@@ -472,9 +421,9 @@ class Trainer:
         if (self.iter + 1) % self.exp.temp_img_interval == 0:
             self.stylegan_generate_imgs()
         # 对齐梯度用
-        if self.rank == 0:
-            if (self.iter + 1) == 20:
-                self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+        # if self.rank == 0:
+        #     if (self.iter + 1) == 20:
+        #         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
     @property
     def progress_in_iter(self):
@@ -544,13 +493,25 @@ class Trainer:
             save_model = self.model
             logger.info("Save weights to {}".format(self.file_name))
             if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
+                if self.is_distributed:
+                    synthesis = save_model.synthesis.module
+                    synthesis_ema = save_model.synthesis_ema.module
+                    mapping = save_model.mapping.module
+                    mapping_ema = save_model.mapping_ema.module
+                    discriminator = save_model.discriminator.module
+                else:
+                    synthesis = save_model.synthesis
+                    synthesis_ema = save_model.synthesis_ema
+                    mapping = save_model.mapping
+                    mapping_ema = save_model.mapping_ema
+                    discriminator = save_model.discriminator
                 ckpt_state = {
                     "start_epoch": self.epoch + 1,
-                    "synthesis": save_model.synthesis.state_dict(),
-                    "synthesis_ema": save_model.synthesis_ema.state_dict(),
-                    "mapping": save_model.mapping.state_dict(),
-                    "mapping_ema": save_model.mapping_ema.state_dict(),
-                    "discriminator": save_model.discriminator.state_dict(),
+                    "synthesis": synthesis.state_dict(),
+                    "synthesis_ema": synthesis_ema.state_dict(),
+                    "mapping": mapping.state_dict(),
+                    "mapping_ema": mapping_ema.state_dict(),
+                    "discriminator": discriminator.state_dict(),
                     "optimizer_G": self.optimizer_G.state_dict(),
                     "optimizer_D": self.optimizer_D.state_dict(),
                 }

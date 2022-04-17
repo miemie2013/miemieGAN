@@ -118,7 +118,7 @@ class StyleGANv2ADAModel:
         # loss config.
         self.augment_pipe = augment_pipe
         self.style_mixing_prob = style_mixing_prob
-        # self.style_mixing_prob = -1.0
+        self.style_mixing_prob = -1.0
         self.r1_gamma = r1_gamma
         self.pl_batch_shrink = pl_batch_shrink
         self.pl_decay = pl_decay
@@ -138,7 +138,7 @@ class StyleGANv2ADAModel:
             self.ada_stats = training_stats.Collector(regex='Loss/signs/real')
 
         self.align_grad = False
-        # self.align_grad = True
+        self.align_grad = True
 
         self.is_distributed = False
 
@@ -180,9 +180,9 @@ class StyleGANv2ADAModel:
         只有DDP模型才能使用with module.no_sync():
         '''
         if self.augment_pipe is not None:
-            img = self.augment_pipe(img)
-            # debug_percentile = 0.7
-            # img = self.augment_pipe(img, debug_percentile)
+            # img = self.augment_pipe(img)
+            debug_percentile = 0.7
+            img = self.augment_pipe(img, debug_percentile)
         with ddp_sync(self.discriminator, sync):
             logits = self.discriminator(img, c)
         return logits
@@ -203,13 +203,13 @@ class StyleGANv2ADAModel:
             # 训练生成器，判别器应该冻结，而且希望fake_img的gen_logits越大越好（愚弄D，使其判断是真图片），所以损失是-log(sigmoid(gen_logits))
             # 每个step都做1次
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' gen_img', gen_img)
-            #     print_diff(dic, phase + ' _gen_ws', _gen_ws)
+            if self.align_grad:
+                print_diff(dic, phase + ' gen_img', gen_img)
+                print_diff(dic, phase + ' _gen_ws', _gen_ws)
 
             gen_logits = self.run_D(gen_img, gen_c, sync=False)
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' gen_logits', gen_logits)
+            if self.align_grad:
+                print_diff(dic, phase + ' gen_logits', gen_logits)
 
             training_stats.report('Loss/scores/fake', gen_logits)
             training_stats.report('Loss/signs/fake', gen_logits.sign())
@@ -222,22 +222,22 @@ class StyleGANv2ADAModel:
             # loss_G = loss_G * float(gain)
             # loss_G.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
             loss_Gmain.mean().mul(gain).backward()
-            # if self.align_grad:
-            #     mapping = self.mapping.module if self.is_distributed else self.mapping
-            #     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
-            #     discriminator = self.discriminator.module if self.is_distributed else self.discriminator
-            #     m_w_grad = mapping.fc7.weight.grad
-            #     m_b_grad = mapping.fc7.bias.grad
-            #     s_w_grad = synthesis.b32.conv0.affine.weight.grad
-            #     s_b_grad = synthesis.b32.conv0.affine.bias.grad
-            #     d_w_grad = discriminator.b32.conv0.weight.grad
-            #     d_b_grad = discriminator.b32.conv0.bias.grad
-            #     print_diff(dic, phase + ' m_w_grad', m_w_grad)
-            #     print_diff(dic, phase + ' m_b_grad', m_b_grad)
-            #     print_diff(dic, phase + ' s_w_grad', s_w_grad)
-            #     print_diff(dic, phase + ' s_b_grad', s_b_grad)
-            #     print_diff(dic, phase + ' d_w_grad', d_w_grad)
-            #     print_diff(dic, phase + ' d_b_grad', d_b_grad)
+            if self.align_grad:
+                mapping = self.mapping.module if self.is_distributed else self.mapping
+                synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                m_w_grad = mapping.fc7.weight.grad
+                m_b_grad = mapping.fc7.bias.grad
+                s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                d_w_grad = discriminator.b32.conv0.weight.grad
+                d_b_grad = discriminator.b32.conv0.bias.grad
+                print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                print_diff(dic, phase + ' d_b_grad', d_b_grad)
 
         # Gpl: Apply path length regularization.
         if do_Gpl:
@@ -251,17 +251,17 @@ class StyleGANv2ADAModel:
                 gen_c_ = gen_c[:batch_size]
 
             gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' gen_img', gen_img)
-            #     print_diff(dic, phase + ' gen_ws', gen_ws)
-            pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
-            # pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+            if self.align_grad:
+                print_diff(dic, phase + ' gen_img', gen_img)
+                print_diff(dic, phase + ' gen_ws', gen_ws)
+            # pl_noise = torch.randn_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
+            pl_noise = torch.ones_like(gen_img) / np.sqrt(gen_img.shape[2] * gen_img.shape[3])
             with no_weight_gradients():
                 pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True, only_inputs=True)[0]
 
             pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' pl_grads', pl_grads)
+            if self.align_grad:
+                print_diff(dic, phase + ' pl_grads', pl_grads)
             if self.pl_mean is None:
                 self.pl_mean = torch.zeros([1, ], dtype=torch.float32, device=self.device)
             pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
@@ -276,34 +276,34 @@ class StyleGANv2ADAModel:
             # loss_numpy['loss_Gpl'] = loss_Gpl.cpu().detach().numpy()
             # loss_Gpl.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
             (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(gain).backward()
-            # if self.align_grad:
-            #     mapping = self.mapping.module if self.is_distributed else self.mapping
-            #     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
-            #     discriminator = self.discriminator.module if self.is_distributed else self.discriminator
-            #     m_w_grad = mapping.fc7.weight.grad
-            #     m_b_grad = mapping.fc7.bias.grad
-            #     s_w_grad = synthesis.b32.conv0.affine.weight.grad
-            #     s_b_grad = synthesis.b32.conv0.affine.bias.grad
-            #     d_w_grad = discriminator.b32.conv0.weight.grad
-            #     d_b_grad = discriminator.b32.conv0.bias.grad
-            #     print_diff(dic, phase + ' m_w_grad', m_w_grad)
-            #     print_diff(dic, phase + ' m_b_grad', m_b_grad)
-            #     print_diff(dic, phase + ' s_w_grad', s_w_grad)
-            #     print_diff(dic, phase + ' s_b_grad', s_b_grad)
-            #     print_diff(dic, phase + ' d_w_grad', d_w_grad)
-            #     print_diff(dic, phase + ' d_b_grad', d_b_grad)
+            if self.align_grad:
+                mapping = self.mapping.module if self.is_distributed else self.mapping
+                synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                m_w_grad = mapping.fc7.weight.grad
+                m_b_grad = mapping.fc7.bias.grad
+                s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                d_w_grad = discriminator.b32.conv0.weight.grad
+                d_b_grad = discriminator.b32.conv0.bias.grad
+                print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                print_diff(dic, phase + ' d_b_grad', d_b_grad)
 
         # Dmain: Minimize logits for generated images.
         if do_Dmain:
             # 训练判别器，生成器应该冻结，而且希望fake_img的gen_logits越小越好（判断是假图片），所以损失是-log(1 - sigmoid(gen_logits))
             # 每个step都做1次
             gen_img, _gen_ws = self.run_G(gen_z, gen_c, sync=False)
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' gen_img', gen_img)
-            #     print_diff(dic, phase + ' _gen_ws', _gen_ws)
+            if self.align_grad:
+                print_diff(dic, phase + ' gen_img', gen_img)
+                print_diff(dic, phase + ' _gen_ws', _gen_ws)
             gen_logits = self.run_D(gen_img, gen_c, sync=False) # Gets synced by loss_Dreal.
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' gen_logits', gen_logits)
+            if self.align_grad:
+                print_diff(dic, phase + ' gen_logits', gen_logits)
             training_stats.report('Loss/scores/fake', gen_logits)
             training_stats.report('Loss/signs/fake', gen_logits.sign())
 
@@ -314,22 +314,22 @@ class StyleGANv2ADAModel:
             # loss3 = loss_Dgen * float(gain)
             # loss3.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
             loss_Dgen.mean().mul(gain).backward()
-            # if self.align_grad:
-            #     mapping = self.mapping.module if self.is_distributed else self.mapping
-            #     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
-            #     discriminator = self.discriminator.module if self.is_distributed else self.discriminator
-            #     m_w_grad = mapping.fc7.weight.grad
-            #     m_b_grad = mapping.fc7.bias.grad
-            #     s_w_grad = synthesis.b32.conv0.affine.weight.grad
-            #     s_b_grad = synthesis.b32.conv0.affine.bias.grad
-            #     d_w_grad = discriminator.b32.conv0.weight.grad
-            #     d_b_grad = discriminator.b32.conv0.bias.grad
-            #     print_diff(dic, phase + ' backward0 m_w_grad', m_w_grad)
-            #     print_diff(dic, phase + ' backward0 m_b_grad', m_b_grad)
-            #     print_diff(dic, phase + ' backward0 s_w_grad', s_w_grad)
-            #     print_diff(dic, phase + ' backward0 s_b_grad', s_b_grad)
-            #     print_diff(dic, phase + ' backward0 d_w_grad', d_w_grad)
-            #     print_diff(dic, phase + ' backward0 d_b_grad', d_b_grad)
+            if self.align_grad:
+                mapping = self.mapping.module if self.is_distributed else self.mapping
+                synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                m_w_grad = mapping.fc7.weight.grad
+                m_b_grad = mapping.fc7.bias.grad
+                s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                d_w_grad = discriminator.b32.conv0.weight.grad
+                d_b_grad = discriminator.b32.conv0.bias.grad
+                print_diff(dic, phase + ' backward0 m_w_grad', m_w_grad)
+                print_diff(dic, phase + ' backward0 m_b_grad', m_b_grad)
+                print_diff(dic, phase + ' backward0 s_w_grad', s_w_grad)
+                print_diff(dic, phase + ' backward0 s_b_grad', s_b_grad)
+                print_diff(dic, phase + ' backward0 d_w_grad', d_w_grad)
+                print_diff(dic, phase + ' backward0 d_b_grad', d_b_grad)
 
         # Dmain: Maximize logits for real images.
         # Dr1: Apply R1 regularization.
@@ -339,16 +339,16 @@ class StyleGANv2ADAModel:
             real_logits = self.run_D(real_img_tmp, real_c, sync=sync)
             training_stats.report('Loss/scores/real', real_logits)
             training_stats.report('Loss/signs/real', real_logits.sign())
-            # if self.align_grad:
-            #     print_diff(dic, phase + ' real_logits', real_logits)
+            if self.align_grad:
+                print_diff(dic, phase + ' real_logits', real_logits)
 
             loss_Dreal = 0
             if do_Dmain:
                 # 训练判别器，生成器应该冻结，而且希望real_img的gen_logits越大越好（判断是真图片），所以损失是-log(sigmoid(real_logits))
                 # 每个step都做1次
                 loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
-                # if self.align_grad:
-                #     print_diff(dic, phase + ' loss_Dreal', loss_Dreal)
+                if self.align_grad:
+                    print_diff(dic, phase + ' loss_Dreal', loss_Dreal)
                 loss_numpy['loss_Dreal'] = loss_Dreal.cpu().detach().numpy().mean()
                 training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)
 
@@ -358,8 +358,8 @@ class StyleGANv2ADAModel:
                 # 每16个step做1次
                 with no_weight_gradients():
                     r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
-                # if self.align_grad:
-                #     print_diff(dic, phase + ' r1_grads', r1_grads)
+                if self.align_grad:
+                    print_diff(dic, phase + ' r1_grads', r1_grads)
                 r1_penalty = r1_grads.square().sum([1, 2, 3])
                 loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                 loss_numpy['loss_Dr1'] = loss_Dr1.cpu().detach().numpy().mean()
@@ -371,30 +371,30 @@ class StyleGANv2ADAModel:
             #     loss4 += loss3
             # loss4.backward()  # 咩酱：gain即上文提到的这个阶段的训练间隔。
             (real_logits * 0 + loss_Dreal + loss_Dr1).mean().mul(gain).backward()
-            # if self.align_grad:
-            #     mapping = self.mapping.module if self.is_distributed else self.mapping
-            #     synthesis = self.synthesis.module if self.is_distributed else self.synthesis
-            #     discriminator = self.discriminator.module if self.is_distributed else self.discriminator
-            #     m_w_grad = mapping.fc7.weight.grad
-            #     m_b_grad = mapping.fc7.bias.grad
-            #     s_w_grad = synthesis.b32.conv0.affine.weight.grad
-            #     s_b_grad = synthesis.b32.conv0.affine.bias.grad
-            #     d_w_grad = discriminator.b32.conv0.weight.grad
-            #     d_b_grad = discriminator.b32.conv0.bias.grad
-            #     if do_Dmain:
-            #         print_diff(dic, phase + ' backward1 m_w_grad', m_w_grad)
-            #         print_diff(dic, phase + ' backward1 m_b_grad', m_b_grad)
-            #         print_diff(dic, phase + ' backward1 s_w_grad', s_w_grad)
-            #         print_diff(dic, phase + ' backward1 s_b_grad', s_b_grad)
-            #         print_diff(dic, phase + ' backward1 d_w_grad', d_w_grad)
-            #         print_diff(dic, phase + ' backward1 d_b_grad', d_b_grad)
-            #     if do_Dr1:
-            #         print_diff(dic, phase + ' m_w_grad', m_w_grad)
-            #         print_diff(dic, phase + ' m_b_grad', m_b_grad)
-            #         print_diff(dic, phase + ' s_w_grad', s_w_grad)
-            #         print_diff(dic, phase + ' s_b_grad', s_b_grad)
-            #         print_diff(dic, phase + ' d_w_grad', d_w_grad)
-            #         print_diff(dic, phase + ' d_b_grad', d_b_grad)
+            if self.align_grad:
+                mapping = self.mapping.module if self.is_distributed else self.mapping
+                synthesis = self.synthesis.module if self.is_distributed else self.synthesis
+                discriminator = self.discriminator.module if self.is_distributed else self.discriminator
+                m_w_grad = mapping.fc7.weight.grad
+                m_b_grad = mapping.fc7.bias.grad
+                s_w_grad = synthesis.b32.conv0.affine.weight.grad
+                s_b_grad = synthesis.b32.conv0.affine.bias.grad
+                d_w_grad = discriminator.b32.conv0.weight.grad
+                d_b_grad = discriminator.b32.conv0.bias.grad
+                if do_Dmain:
+                    print_diff(dic, phase + ' backward1 m_w_grad', m_w_grad)
+                    print_diff(dic, phase + ' backward1 m_b_grad', m_b_grad)
+                    print_diff(dic, phase + ' backward1 s_w_grad', s_w_grad)
+                    print_diff(dic, phase + ' backward1 s_b_grad', s_b_grad)
+                    print_diff(dic, phase + ' backward1 d_w_grad', d_w_grad)
+                    print_diff(dic, phase + ' backward1 d_b_grad', d_b_grad)
+                if do_Dr1:
+                    print_diff(dic, phase + ' m_w_grad', m_w_grad)
+                    print_diff(dic, phase + ' m_b_grad', m_b_grad)
+                    print_diff(dic, phase + ' s_w_grad', s_w_grad)
+                    print_diff(dic, phase + ' s_b_grad', s_b_grad)
+                    print_diff(dic, phase + ' d_w_grad', d_w_grad)
+                    print_diff(dic, phase + ' d_b_grad', d_b_grad)
         return loss_numpy
 
     def train_iter(self, optimizers=None, rank=0, world_size=1):
@@ -403,32 +403,32 @@ class StyleGANv2ADAModel:
         phase_real_c = self.input[1]
         phases_all_gen_c = self.input[2]
 
-        # if self.align_grad:
-        #     if self.batch_idx == 0:
-        #         '''
-        #         假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
-        #         即总的批大小是8，每卡批大小是4，那么这里
-        #         phase_real_img.shape = [4, 3, 32, 32]
-        #         phase_real_c.shape   = [4, 0]
-        #         batch_gpu            = 4
-        #         即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
-        #         '''
-        #         print('rank =', rank)
-        #         print('world_size =', world_size)
-        #         print('phase_real_img.shape =', phase_real_img.shape)
-        #         print('phase_real_c.shape =', phase_real_c.shape)
+        if self.align_grad:
+            if self.batch_idx == 0:
+                '''
+                假如训练命令的命令行参数是 --gpus=2 --batch 8 --cfg my32
+                即总的批大小是8，每卡批大小是4，那么这里
+                phase_real_img.shape = [4, 3, 32, 32]
+                phase_real_c.shape   = [4, 0]
+                batch_gpu            = 4
+                即拿到的phase_real_img和phase_real_c是一张卡（一个进程）上的训练样本，（每张卡）批大小是4
+                '''
+                print('rank =', rank)
+                print('world_size =', world_size)
+                print('phase_real_img.shape =', phase_real_img.shape)
+                print('phase_real_c.shape =', phase_real_c.shape)
 
         # 对齐梯度用
         dic2 = None
-        # if self.align_grad:
-        #     print('======================== batch%.5d.npz ========================'%self.batch_idx)
-        #     npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
-        #     isDebug = True if sys.gettrace() else False
-        #     if isDebug:
-        #         npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
-        #     dic2 = np.load(npz_path)
-        #     aaaaaaaaa = dic2['phase_real_img']
-        #     phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
+        if self.align_grad:
+            print('======================== batch%.5d.npz ========================'%self.batch_idx)
+            npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+            isDebug = True if sys.gettrace() else False
+            if isDebug:
+                npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+            dic2 = np.load(npz_path)
+            aaaaaaaaa = dic2['phase_real_img']
+            phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
 
         phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
 
@@ -441,8 +441,8 @@ class StyleGANv2ADAModel:
         batch_size = batch_gpu * num_gpus
         if self.z_dim > 0:
             all_gen_z = torch.randn([len(phases) * batch_size, self.z_dim], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
-            # if self.align_grad:
-            #     all_gen_z = torch.Tensor(dic2['all_gen_z']).to(device).to(torch.float32)
+            if self.align_grad:
+                all_gen_z = torch.Tensor(dic2['all_gen_z']).to(device).to(torch.float32)
         else:
             all_gen_z = torch.randn([len(phases) * batch_size, 1], device=phase_real_img.device)  # 咩酱：训练的4个阶段每个gpu的噪声
         phases_all_gen_z = all_gen_z.split(batch_size)  # 咩酱：训练的4个阶段的噪声
@@ -541,12 +541,12 @@ class StyleGANv2ADAModel:
         self.cur_nimg += batch_size
         self.batch_idx += 1
 
-        # if self.align_grad:
-        #     if self.is_distributed:
-        #         w_avg = self.mapping.module.w_avg
-        #     else:
-        #         w_avg = self.mapping.w_avg
-        #     print_diff(dic2, 'w_avg', w_avg)
+        if self.align_grad:
+            if self.is_distributed:
+                w_avg = self.mapping.module.w_avg
+            else:
+                w_avg = self.mapping.w_avg
+            print_diff(dic2, 'w_avg', w_avg)
 
         # Execute ADA heuristic.
         if self.adjust_p and self.augment_pipe is not None and (self.batch_idx % self.ada_interval == 0):
@@ -556,10 +556,10 @@ class StyleGANv2ADAModel:
 
             diff = Loss_signs_real_mean - self.ada_target
             adjust = np.sign(diff)
-            # if self.align_grad:
-            #     print_diff(dic2, 'augment_pipe_p', self.augment_pipe.p)
-            #     kkk = 'aaaaaaaaaa1'; ddd = np.sum((dic2[kkk] - np.array(Loss_signs_real_mean)) ** 2)
-            #     print('diff=%.6f (%s)' % (ddd, kkk))
+            if self.align_grad:
+                print_diff(dic2, 'augment_pipe_p', self.augment_pipe.p)
+                kkk = 'aaaaaaaaaa1'; ddd = np.sum((dic2[kkk] - np.array(Loss_signs_real_mean)) ** 2)
+                print('diff=%.6f (%s)' % (ddd, kkk))
             adjust = adjust * (batch_size * self.ada_interval) / (self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(constant(0, device=device)))
 

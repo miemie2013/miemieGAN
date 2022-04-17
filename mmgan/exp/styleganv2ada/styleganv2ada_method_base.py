@@ -34,8 +34,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.basic_lr_per_img = 0.0025 / 64.0
-        # self.basic_lr_per_img = 0.0025 / 2.0
+        self.basic_glr_per_img = 0.0025 / 64.0
+        self.basic_dlr_per_img = 0.0025 / 64.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -142,20 +142,20 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self):
+    def get_model(self, device, rank):
         from mmgan.models import StyleGANv2ADA_SynthesisNetwork, StyleGANv2ADA_MappingNetwork, StyleGANv2ADA_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv2ADAModel
         if getattr(self, "model", None) is None:
-            synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
-            synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis)
+            synthesis = StyleGANv2ADA_SynthesisNetwork(**self.synthesis).train().requires_grad_(False).to(device)
+            synthesis_ema = StyleGANv2ADA_SynthesisNetwork(**self.synthesis).eval().requires_grad_(False).to(device)
             self.mapping['num_ws'] = synthesis.num_ws
-            mapping = StyleGANv2ADA_MappingNetwork(**self.mapping)
-            mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping)
-            discriminator = StyleGANv2ADA_Discriminator(**self.discriminator)
+            mapping = StyleGANv2ADA_MappingNetwork(**self.mapping).train().requires_grad_(False).to(device)
+            mapping_ema = StyleGANv2ADA_MappingNetwork(**self.mapping).eval().requires_grad_(False).to(device)
+            discriminator = StyleGANv2ADA_Discriminator(**self.discriminator).train().requires_grad_(False).to(device)
             augment_pipe = None
             adjust_p = False  # 是否调整augment_pipe的p
             if hasattr(self, 'augment_pipe') and (self.model_cfg['augment_p'] > 0 or self.model_cfg['ada_target'] is not None):
-                augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe).train().requires_grad_(False)
+                augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe).train().requires_grad_(False).to(device)
                 augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
                 if self.model_cfg['ada_target'] is not None:
                     adjust_p = True
@@ -166,8 +166,8 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
             mapping.requires_grad_(False)
             mapping_ema.requires_grad_(False)
             discriminator.requires_grad_(False)
-            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema,
-                                            discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
+            self.model = StyleGANv2ADAModel(synthesis, synthesis_ema, mapping, mapping_ema, discriminator, device, rank,
+                                            augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 
     def get_data_loader(
@@ -227,7 +227,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
     def get_optimizer(self, lr, name):
         if name == 'G':
             if "optimizer_G" not in self.__dict__:
-                lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
+                # lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.synthesis.named_parameters():
                     freeze = False
@@ -245,19 +245,19 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                     params0 = {'params': [param]}
                     params0['lr'] = lr
                     param_groups.append(params0)
-                # optimizer = torch.optim.Adam(
-                #     param_groups, lr=lr,
-                #     betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
-                #     eps=self.optimizer_cfg['generator']['epsilon']
-                # )
-                optimizer = torch.optim.SGD(
-                    param_groups, lr=lr, momentum=0.9
+                optimizer = torch.optim.Adam(
+                    param_groups, lr=lr,
+                    betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
+                    eps=self.optimizer_cfg['generator']['epsilon']
                 )
+                # optimizer = torch.optim.SGD(
+                #     param_groups, lr=lr, momentum=0.9
+                # )
                 self.optimizer_G = optimizer
             return self.optimizer_G
         elif name == 'D':
             if "optimizer_D" not in self.__dict__:
-                lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
+                # lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.discriminator.named_parameters():
                     freeze = False
@@ -271,14 +271,14 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                         param_groups.append(params0)
                     else:
                         param.requires_grad = False
-                # optimizer = torch.optim.Adam(
-                #     param_groups, lr=lr,
-                #     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
-                #     eps=self.optimizer_cfg['discriminator']['epsilon']
-                # )
-                optimizer = torch.optim.SGD(
-                    param_groups, lr=lr, momentum=0.9
+                optimizer = torch.optim.Adam(
+                    param_groups, lr=lr,
+                    betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
+                    eps=self.optimizer_cfg['discriminator']['epsilon']
                 )
+                # optimizer = torch.optim.SGD(
+                #     param_groups, lr=lr, momentum=0.9
+                # )
                 self.optimizer_D = optimizer
             return self.optimizer_D
 

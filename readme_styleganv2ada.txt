@@ -73,7 +73,7 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 2 -b 8
 
 
 CUDA_VISIBLE_DEVICES=0
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py --dist-url tcp://192.168.0.104:12312 --num_machines 2 --machine_rank 0 -b 8 -eb 2 -c styleganv2ada_32_00.pth
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py --dist-url tcp://192.168.0.104:12319 --num_machines 2 --machine_rank 1 -b 8 -eb 2 -c styleganv2ada_32_00.pth
 
 
 

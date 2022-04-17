@@ -102,7 +102,8 @@ def main(exp, args):
 
     logger.info("Args: {}".format(args))
 
-    model = exp.get_model()
+    device = torch.device('cpu')
+    model = exp.get_model(device, 0)
     # 算法名字
     model_class_name = model.__class__.__name__
 
