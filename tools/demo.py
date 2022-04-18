@@ -207,7 +207,11 @@ def main(exp, args):
                 ckpt_file = args.ckpt
             logger.info("loading checkpoint")
             ckpt = torch.load(ckpt_file, map_location="cpu")
-            model = load_ckpt(model, ckpt["model"])
+            model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+            model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+            model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+            model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+            model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
             logger.info("loaded checkpoint done.")
 
             row_seeds = args.row_seeds.split(',')

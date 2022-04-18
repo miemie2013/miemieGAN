@@ -154,9 +154,6 @@ class Trainer:
             torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
 
             model = self.exp.get_model(self.device, self.rank)
-
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
         elif self.archi_name == 'StyleGANv3':
             # 为了同步统计量.必须在torch.distributed.init_process_group()方法之后调用.
             sync_device = torch.device('cuda', self.local_rank) if self.is_distributed else None
@@ -176,9 +173,6 @@ class Trainer:
             torch.backends.cudnn.allow_tf32 = False        # Allow PyTorch to internally use tf32 for convolutions
 
             model = self.exp.get_model(self.device, self.rank, self.args.batch_size)
-
-            # value of epoch will be set in `resume_train`
-            model = self.resume_train(model)
             resume = False
             if self.args.resume:
                 resume = True
@@ -261,6 +255,9 @@ class Trainer:
             self.optimizer_D = self.exp.get_optimizer(self.base_lr_D, 'D')
             self.optimizers['optimizer_G'] = self.optimizer_G
             self.optimizers['optimizer_D'] = self.optimizer_D
+
+            # value of epoch will be set in `resume_train`
+            model = self.resume_train(model)
 
 
             self.train_loader = self.exp.get_data_loader(
@@ -366,17 +363,13 @@ class Trainer:
             self.stylegan_generate_imgs()
 
     def stylegan_generate_imgs(self):
-        if self.is_distributed:
-            model = self.model.module
-        else:
-            model = self.model
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             for seed_idx, data in enumerate(self.test_loader):
                 for k, v in data.items():
                     data[k] = v.cuda()
-                model.setup_input(data)
+                self.model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr, seed = model.test_iter()
+                    img_bgr, seed = self.model.test_iter()
                     save_folder = os.path.join(self.file_name, 'snapshot_imgs')
                     os.makedirs(save_folder, exist_ok=True)
                     save_file_name = os.path.join(save_folder, f'epoch{self.epoch + 1:08d}_seed{seed:08d}.png')
@@ -439,8 +432,19 @@ class Trainer:
 
             ckpt = torch.load(ckpt_file, map_location=self.device)
             # resume the model/optimizer state dict
-            model.load_state_dict(ckpt["model"])
             if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
+                if self.is_distributed:
+                    model.synthesis.module.load_state_dict(ckpt["synthesis"])
+                    model.synthesis_ema.module.load_state_dict(ckpt["synthesis_ema"])
+                    model.mapping.module.load_state_dict(ckpt["mapping"])
+                    model.mapping_ema.module.load_state_dict(ckpt["mapping_ema"])
+                    model.discriminator.module.load_state_dict(ckpt["discriminator"])
+                else:
+                    model.synthesis.load_state_dict(ckpt["synthesis"])
+                    model.synthesis_ema.load_state_dict(ckpt["synthesis_ema"])
+                    model.mapping.load_state_dict(ckpt["mapping"])
+                    model.mapping_ema.load_state_dict(ckpt["mapping_ema"])
+                    model.discriminator.load_state_dict(ckpt["discriminator"])
                 self.optimizer_G.load_state_dict(ckpt["optimizer_G"])
                 self.optimizer_D.load_state_dict(ckpt["optimizer_D"])
             else:
