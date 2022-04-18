@@ -168,7 +168,10 @@ class StyleGANv2ADAModel:
             if self.style_mixing_prob > 0:
                 cutoff = torch.empty([], dtype=torch.int64, device=ws.device).random_(1, ws.shape[1])
                 cutoff = torch.where(torch.rand([], device=ws.device) < self.style_mixing_prob, cutoff, torch.full_like(cutoff, ws.shape[1]))
-                ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
+                # ws[:, cutoff:] = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
+                temp = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
+                temp2 = ws[:, :cutoff]
+                ws = torch.cat([temp2, temp], 1)
 
         with ddp_sync(self.synthesis, sync):
             img = self.synthesis(ws)

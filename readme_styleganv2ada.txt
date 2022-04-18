@@ -154,6 +154,10 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth
+
+
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
@@ -192,6 +196,10 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d
 
 
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/7.pth --resume > stylegan2ada_128.log 2>&1 &
+
+
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/7.pth --resume
 
 
 
