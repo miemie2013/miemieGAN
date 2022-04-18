@@ -414,9 +414,9 @@ class Trainer:
         if (self.iter + 1) % self.exp.temp_img_interval == 0:
             self.stylegan_generate_imgs()
         # 对齐梯度用
-        # if self.rank == 0:
-        #     if (self.iter + 1) == 20:
-        #         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
+        if self.rank == 0:
+            if (self.iter + 1) == 20:
+                self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
 
     @property
     def progress_in_iter(self):

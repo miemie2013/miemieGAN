@@ -227,7 +227,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
     def get_optimizer(self, lr, name):
         if name == 'G':
             if "optimizer_G" not in self.__dict__:
-                # lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
+                lr = 0.001   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.synthesis.named_parameters():
                     freeze = False
@@ -245,19 +245,19 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                     params0 = {'params': [param]}
                     params0['lr'] = lr
                     param_groups.append(params0)
-                optimizer = torch.optim.Adam(
-                    param_groups, lr=lr,
-                    betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
-                    eps=self.optimizer_cfg['generator']['epsilon']
-                )
-                # optimizer = torch.optim.SGD(
-                #     param_groups, lr=lr, momentum=0.9
+                # optimizer = torch.optim.Adam(
+                #     param_groups, lr=lr,
+                #     betas=(self.optimizer_cfg['generator']['beta1'], self.optimizer_cfg['generator']['beta2']),
+                #     eps=self.optimizer_cfg['generator']['epsilon']
                 # )
+                optimizer = torch.optim.SGD(
+                    param_groups, lr=lr, momentum=0.9
+                )
                 self.optimizer_G = optimizer
             return self.optimizer_G
         elif name == 'D':
             if "optimizer_D" not in self.__dict__:
-                # lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
+                lr = 0.002   # 用于梯度对齐时换为SGD优化器时解除注释
                 param_groups = []
                 for name, param in self.model.discriminator.named_parameters():
                     freeze = False
@@ -271,14 +271,14 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
                         param_groups.append(params0)
                     else:
                         param.requires_grad = False
-                optimizer = torch.optim.Adam(
-                    param_groups, lr=lr,
-                    betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
-                    eps=self.optimizer_cfg['discriminator']['epsilon']
-                )
-                # optimizer = torch.optim.SGD(
-                #     param_groups, lr=lr, momentum=0.9
+                # optimizer = torch.optim.Adam(
+                #     param_groups, lr=lr,
+                #     betas=(self.optimizer_cfg['discriminator']['beta1'], self.optimizer_cfg['discriminator']['beta2']),
+                #     eps=self.optimizer_cfg['discriminator']['epsilon']
                 # )
+                optimizer = torch.optim.SGD(
+                    param_groups, lr=lr, momentum=0.9
+                )
                 self.optimizer_D = optimizer
             return self.optimizer_D
 
