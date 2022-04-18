@@ -463,11 +463,18 @@ class Trainer:
                 ckpt_file = self.args.ckpt
                 if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
                     ckpt = torch.load(ckpt_file, map_location=self.device)
-                    model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
-                    model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
-                    model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
-                    model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
-                    model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
+                    if self.is_distributed:
+                        model.synthesis.module = load_ckpt(model.synthesis.module, ckpt["synthesis"])
+                        model.synthesis_ema.module = load_ckpt(model.synthesis_ema.module, ckpt["synthesis_ema"])
+                        model.mapping.module = load_ckpt(model.mapping.module, ckpt["mapping"])
+                        model.mapping_ema.module = load_ckpt(model.mapping_ema.module, ckpt["mapping_ema"])
+                        model.discriminator.module = load_ckpt(model.discriminator.module, ckpt["discriminator"])
+                    else:
+                        model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+                        model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+                        model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+                        model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+                        model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
                 else:
                     raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
             self.start_epoch = 0
