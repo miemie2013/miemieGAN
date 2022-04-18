@@ -102,6 +102,8 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
 
 (afhq)
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
@@ -120,6 +122,9 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_128_custom
 
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/67.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 (afhq)
@@ -151,11 +156,15 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
 CUDA_VISIBLE_DEVICES=0,1
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth
+
+
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
 
 
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
@@ -201,6 +210,8 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d
 CUDA_VISIBLE_DEVICES=0,1
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/7.pth --resume
 
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --resume > stylegan2ada.log 2>&1 &
 
 
 ----------------------- 计算指标 -----------------------
