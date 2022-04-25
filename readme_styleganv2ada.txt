@@ -81,6 +81,46 @@ python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs
 
 
 
+----------------------- 进阶：单卡和多卡进行对齐（用 单卡批大小8 实现 双卡总批大小8 的效果） -----------------------
+把 DiscriminatorEpilogue 类的__init__()方法的
+        # mbstd_num_channels = 0
+解除注释，即不使用 MinibatchStdLayer ，因为 MinibatchStdLayer 会有类似BN层的不同图片的数据交流，
+使用的话要实现类似同步BN的操作，会加大对齐难度，所以不使用这个层。
+
+除了上述“梯度对齐”的修改外，还需要修改：
+1.设置 StyleGANv2ADAModel 的
+对下面所有的以if self.align_2gpu_1gpu:开头的代码块解除注释
+if self.align_2gpu_1gpu:
+    xxx
+
+注释掉 accumulate_gradients() 里的：
+gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
+
+2.(原版仓库也要设置)把 DiscriminatorEpilogue 类的__init__()方法的
+        # mbstd_num_channels = 0
+解除注释
+
+3.把 StyleGANv2ADA_MappingNetwork 类的forward()方法的
+            self.w_avg.copy_(x.detach().mean(dim=0).lerp(self.w_avg, self.w_avg_beta))
+注释掉。把
+            # bz = x.shape[0]
+            # gpu0_w_avg = x.detach()[:bz//2].mean(dim=0).lerp(self.w_avg, self.w_avg_beta)
+            # gpu1_w_avg = x.detach()[bz//2:].mean(dim=0).lerp(self.w_avg, self.w_avg_beta)
+            # self.w_avg.copy_(gpu0_w_avg)
+解除注释。即： 单机多卡训练时，w_avg的更新情况：强制使用 0号gpu 更新后的w_avg 作为整体更新后的w_avg
+
+
+输入以下命令验证是否已经对齐：
+python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -c_G G_00.pth -c_Gema G_ema_00.pth -c_D D_00.pth -oc styleganv2ada_32_00.pth
+
+python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -c_G G_19.pth -c_Gema G_ema_19.pth -c_D D_19.pth -oc styleganv2ada_32_19.pth
+
+CUDA_VISIBLE_DEVICES=0
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_32_custom.py -d 1 -b 8 -eb 1 -c styleganv2ada_32_00.pth
+
+python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs/styleganv2ada_32_custom/1.pth --d_value 0.0005
+
+
 
 
 ----------------------- 转换权重 -----------------------
