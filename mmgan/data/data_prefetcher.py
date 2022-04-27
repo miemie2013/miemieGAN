@@ -68,23 +68,26 @@ class StyleGANv2ADADataPrefetcher:
 
     def preload(self):
         try:
-            self.phase_real_img, self.phase_real_c, self.phases_all_gen_c = next(self.loader)
+            self.phase_real_img, self.phase_real_c, self.phases_all_gen_c, self.raw_idx = next(self.loader)
         except StopIteration:
             self.phase_real_img = None
             self.phase_real_c = None
             self.phases_all_gen_c = None
+            self.raw_idx = None
             return
 
         with torch.cuda.stream(self.stream):
             self.input_cuda()
             self.phase_real_c = self.phase_real_c.cuda(non_blocking=True)
             self.phases_all_gen_c = [x.cuda(non_blocking=True) for x in self.phases_all_gen_c]
+            self.raw_idx = self.raw_idx.cuda(non_blocking=True)
 
     def next(self):
         torch.cuda.current_stream().wait_stream(self.stream)
         phase_real_img = self.phase_real_img
         phase_real_c = self.phase_real_c
         phases_all_gen_c = self.phases_all_gen_c
+        raw_idx = self.raw_idx
         if phase_real_img is not None:
             self.record_stream(phase_real_img)
         if phase_real_c is not None:
@@ -92,8 +95,10 @@ class StyleGANv2ADADataPrefetcher:
         if phases_all_gen_c is not None:
             for x in phases_all_gen_c:
                 x.record_stream(torch.cuda.current_stream())
+        if raw_idx is not None:
+            raw_idx.record_stream(torch.cuda.current_stream())
         self.preload()
-        return phase_real_img, phase_real_c, phases_all_gen_c
+        return phase_real_img, phase_real_c, phases_all_gen_c, raw_idx
 
     def _input_cuda_for_image(self):
         self.phase_real_img = self.phase_real_img.cuda(non_blocking=True)

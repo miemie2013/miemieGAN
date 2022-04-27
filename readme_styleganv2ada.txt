@@ -123,6 +123,39 @@ python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs
 
 
 
+----------------------- 进阶：验证每张卡上的训练数据是否不重复 -----------------------
+1.exps/styleganv2ada/styleganv2ada_256_custom.py
+        # 有前16张照片，用来验证每张卡上的训练数据是否不重复
+        # self.dataroot = '../data/data110820/faces2'
+解除注释。
+        self.print_interval = 10
+改成1
+        self.save_step_interval = 1000
+改成2
+
+2.trainer.py下面代码解除注释
+            # if self.rank == 0:
+            #     logger.info(raw_idx)
+            # else:
+            #     print(raw_idx)
+肉眼观察raw_idx即可(0~15的值)。
+
+单机1卡
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_2.pth --resume
+
+
+单机2卡
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 4 -eb 2 -c styleganv2ada_512_afhqcat.pth
+
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 4 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_2.pth --resume
+
+
+
+
 ----------------------- 转换权重 -----------------------
 python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c_Gema G_ema_afhqcat.pth -c_G G_afhqcat.pth -c_D D_afhqcat.pth -oc styleganv2ada_512_afhqcat.pth
 
@@ -179,51 +212,45 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_1024_metfa
 
 
 
------------------------ 评估 -----------------------
-
-
 
 ----------------------- 训练 -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
+
+
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1     > stylegan2ada.log 2>&1 &
 
 
 
 ----------------------- 迁移学习，带上-c（--ckpt）参数读取预训练模型。 -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 2 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 1 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
 
 
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-
-CUDA_VISIBLE_DEVICES=0,1
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth
+迁移学习动漫头像数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
 
 
 CUDA_VISIBLE_DEVICES=0,1
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
 
 
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
 
 
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
+----------------------- Linux常用命令 -----------------------
+查看日志
+cat stylegan2ada.log
 
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c styleganv2ada_512_afhqcat.pth > stylegan2ada_128.log 2>&1 &
-
+查看日志(最后20行)
+tail -n 20 stylegan2ada.log
 
 
 看显存占用、GPU利用率
 watch -n 0.1 nvidia-smi
 
 
+虚拟环境相关：
 conda create -n pasta python=3.9
 
 conda activate pasta
@@ -238,20 +265,18 @@ export CUDA_VISIBLE_DEVICES=4
 
 
 ----------------------- 恢复训练（加上参数--resume） -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/7.pth --resume
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
 
 
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/7.pth --resume > stylegan2ada.log 2>&1 &
-
-
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/7.pth --resume > stylegan2ada_128.log 2>&1 &
+迁移学习动漫头像数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
 
 
 CUDA_VISIBLE_DEVICES=0,1
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/7.pth --resume
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=0,1
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --resume > stylegan2ada.log 2>&1 &
 
 
 ----------------------- 计算指标 -----------------------

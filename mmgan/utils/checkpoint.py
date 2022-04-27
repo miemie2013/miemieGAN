@@ -43,15 +43,48 @@ def save_checkpoint(state, is_best, save_dir, model_name="", max_keep=10):
         shutil.copyfile(filename, best_filename)
     # delete models
     path_dir = os.listdir(save_dir)
-    epoch_id_plus_one = []   # epoch_id加1
+    epoch_ids = []
     for name in path_dir:
         sss = name.split('.')
         if sss[-1] == "pth" or sss[-1] == "pt":
             if sss[0].isdigit():
-                it_id = int(sss[0])
-                epoch_id_plus_one.append(it_id)
-    if len(epoch_id_plus_one) > max_keep * 1:
-        it_id = min(epoch_id_plus_one)
-        del_model = '%s/%d.pth' % (save_dir, it_id)
+                epoch_id = int(sss[0])
+                epoch_ids.append(epoch_id)
+            elif '_' in sss[0]:
+                ss = sss[0].split('_')
+                if ss[0].isdigit() and ss[1].isdigit():
+                    epoch_id = int(ss[0])
+                    epoch_ids.append(epoch_id)
+    if len(epoch_ids) > max_keep * 1:
+        target_epoch_id = min(epoch_ids)
+        # 寻找最小iter_id
+        target_iter_id = None
+        for name in path_dir:
+            sss = name.split('.')
+            if sss[-1] == "pth" or sss[-1] == "pt":
+                if sss[0].isdigit():
+                    epoch_id = int(sss[0])
+                    iter_id = 0
+                    if epoch_id == target_epoch_id:
+                        if target_iter_id is None:
+                            target_iter_id = iter_id
+                        else:
+                            if iter_id < target_iter_id:
+                                target_iter_id = iter_id
+                elif '_' in sss[0]:
+                    ss = sss[0].split('_')
+                    if ss[0].isdigit() and ss[1].isdigit():
+                        epoch_id = int(ss[0])
+                        iter_id = int(ss[1])
+                        if epoch_id == target_epoch_id:
+                            if target_iter_id is None:
+                                target_iter_id = iter_id
+                            else:
+                                if iter_id < target_iter_id:
+                                    target_iter_id = iter_id
+        if target_iter_id == 0:
+            del_model = '%s/%d.pth' % (save_dir, target_epoch_id)
+        else:
+            del_model = '%s/%d_%d.pth' % (save_dir, target_epoch_id, target_iter_id)
         if os.path.exists(del_model):
             os.remove(del_model)

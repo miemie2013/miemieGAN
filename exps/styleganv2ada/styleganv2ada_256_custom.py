@@ -22,6 +22,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.kimgs = 25000
         self.print_interval = 10
         self.temp_img_interval = 100
+        self.save_step_interval = 1000
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
@@ -120,6 +121,8 @@ class Exp(StyleGANv2ADA_Method_Exp):
 
         # ---------------- dataset config ---------------- #
         self.dataroot = '../data/data110820/faces'
+        # 有前16张照片，用来验证每张卡上的训练数据是否不重复
+        # self.dataroot = '../data/data110820/faces2'
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,
