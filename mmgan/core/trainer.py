@@ -90,6 +90,12 @@ class Trainer:
 
     def train_in_iter(self):
         for self.iter in range(self.max_iter):
+            # 恢复训练时读取的权重是没有训练1个完整epoch后保存的权重时，跳过前self.start_iter步的训练。
+            if self.args.resume and not self.finish_one_epoch:
+                if self.start_epoch == self.epoch and self.iter < self.start_iter:
+                    # _ = self.prefetcher.next()
+                    # logger.info(self.iter)
+                    continue
             self.before_iter()
             self.train_one_iter()
             self.after_iter()
@@ -98,7 +104,11 @@ class Trainer:
         iter_start_time = time.time()
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             # StyleGANv2ADA不使用混合精度训练，所以训练代码只写了FP32的情况。
-            phase_real_img, phase_real_c, phases_all_gen_c = self.prefetcher.next()
+            phase_real_img, phase_real_c, phases_all_gen_c, raw_idx = self.prefetcher.next()
+            # if self.rank == 0:
+            #     logger.info(raw_idx)
+            # else:
+            #     print(raw_idx)
             phase_real_img = phase_real_img.to(self.data_type)
             phase_real_c = phase_real_c.to(self.data_type)
             phases_all_gen_c = [x.to(self.data_type) for x in phases_all_gen_c]
@@ -189,6 +199,10 @@ class Trainer:
 
         # 是否进行梯度裁剪
         self.need_clip = False
+        # 1个epoch内保存权重的间隔
+        self.save_step_interval = -1
+        # resume恢复训练时，读取的权重是否是训练1个完整的epoch后保存的权重
+        self.finish_one_epoch = True
 
         if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
             # StyleGANv2ADA中,模型先转DDP模型,再创建优化器实例;
@@ -274,6 +288,7 @@ class Trainer:
             if self.exp.kimgs * 1000 % one_epoch_imgs != 0:
                 self.exp.max_epoch += 1
             self.max_epoch = self.exp.max_epoch
+            self.save_step_interval = self.exp.save_step_interval
 
             logger.info("init prefetcher, this might take one minute or less...")
             self.prefetcher = StyleGANv2ADADataPrefetcher(self.train_loader)
@@ -349,12 +364,6 @@ class Trainer:
 
     def before_epoch(self):
         logger.info("---> start train epoch{}".format(self.epoch + 1))
-        if self.archi_name == 'StyleGANv2ADA':
-            self.train_loader.dataset.set_epoch(self.epoch)
-        elif self.archi_name == 'StyleGANv3':
-            self.train_loader.dataset.set_epoch(self.epoch)
-        else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
 
     def after_epoch(self):
         self.save_ckpt(ckpt_name="%d" % (self.epoch + 1))
@@ -413,6 +422,9 @@ class Trainer:
             self.meter.clear_meters()
         if (self.iter + 1) % self.exp.temp_img_interval == 0:
             self.stylegan_generate_imgs()
+        if self.save_step_interval > 0:
+            if (self.iter + 1) % self.save_step_interval == 0:
+                self.save_ckpt(ckpt_name="%d_%d" % (self.epoch, self.iter + 1))
         # 对齐梯度用
         # if self.rank == 0:
         #     if (self.iter + 1) == 20:
@@ -431,6 +443,10 @@ class Trainer:
                 ckpt_file = self.args.ckpt
 
             ckpt = torch.load(ckpt_file, map_location=self.device)
+            pth_name = ckpt_file.split('/')[-1]
+            if '_' in pth_name:
+                self.finish_one_epoch = False
+                self.start_iter = int((pth_name.split('.')[0]).split('_')[-1])
             # resume the model/optimizer state dict
             if self.archi_name == 'StyleGANv2ADA' or self.archi_name == 'StyleGANv3':
                 if self.is_distributed:
@@ -451,10 +467,12 @@ class Trainer:
                 raise NotImplementedError("Architectures \'{}\' is not implemented.".format(self.archi_name))
             # resume the training states variables
             start_epoch = ckpt["start_epoch"]
+            if not self.finish_one_epoch:
+                start_epoch -= 1
             self.start_epoch = start_epoch
             logger.info(
                 "loaded checkpoint '{}' (epoch {})".format(
-                    self.args.resume, self.start_epoch
+                    ckpt_file, self.start_epoch
                 )
             )  # noqa
         else:

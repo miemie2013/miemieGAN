@@ -27,9 +27,9 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
 
         self.max_epoch = None
         self.kimgs = 25000
-        # self.kimgs = 300
         self.print_interval = 10
         self.temp_img_interval = 100
+        self.save_step_interval = 1000
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
@@ -197,7 +197,7 @@ class StyleGANv2ADA_Method_Exp(BaseExp):
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
 
-        sampler = InfiniteSampler(len(self.dataset), shuffle=False, seed=self.seed if self.seed else 0)
+        sampler = InfiniteSampler(len(self.dataset), shuffle=True, seed=self.seed if self.seed else 0)
 
         batch_sampler = torch.utils.data.sampler.BatchSampler(
             sampler=sampler,

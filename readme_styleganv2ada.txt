@@ -123,6 +123,39 @@ python diff_weights.py --cp1 styleganv2ada_32_19.pth --cp2 StyleGANv2ADA_outputs
 
 
 
+----------------------- 进阶：验证每张卡上的训练数据是否不重复 -----------------------
+1.exps/styleganv2ada/styleganv2ada_256_custom.py
+        # 有前16张照片，用来验证每张卡上的训练数据是否不重复
+        # self.dataroot = '../data/data110820/faces2'
+解除注释。
+        self.print_interval = 10
+改成1
+        self.save_step_interval = 1000
+改成2
+
+2.trainer.py下面代码解除注释
+            # if self.rank == 0:
+            #     logger.info(raw_idx)
+            # else:
+            #     print(raw_idx)
+肉眼观察raw_idx即可(0~15的值)。
+
+单机1卡
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_2.pth --resume
+
+
+单机2卡
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 4 -eb 2 -c styleganv2ada_512_afhqcat.pth
+
+CUDA_VISIBLE_DEVICES=0,1
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 4 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_2.pth --resume
+
+
+
+
 ----------------------- 转换权重 -----------------------
 python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c_Gema G_ema_afhqcat.pth -c_G G_afhqcat.pth -c_D D_afhqcat.pth -oc styleganv2ada_512_afhqcat.pth
 
@@ -245,6 +278,9 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d
 
 
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/7.pth --resume > stylegan2ada_128.log 2>&1 &
+
+
+python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_7400.pth --resume
 
 
 CUDA_VISIBLE_DEVICES=0,1

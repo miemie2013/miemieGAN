@@ -474,14 +474,6 @@ class StyleGANv2ADADataset(torch.utils.data.Dataset):
         self.batch_size = batch_size
         self.train_steps = self._raw_idx.size // batch_size
 
-        # 训练样本
-        self.indexes_ori = [i for i in range(self._raw_idx.size)]
-        self.indexes = copy.deepcopy(self.indexes_ori)
-        # 每个epoch之前洗乱
-        np.random.shuffle(self.indexes)
-        self.indexes = self.indexes[:self.train_steps * self.batch_size]
-        self._len = len(self.indexes)
-
     @staticmethod
     def _file_ext(fname):
         return os.path.splitext(fname)[1].lower()
@@ -526,27 +518,19 @@ class StyleGANv2ADADataset(torch.utils.data.Dataset):
         return labels
 
     def __len__(self):
-        return self._len
-
-    def set_epoch(self, epoch_id):
-        self._epoch = epoch_id
-
-        self.indexes = copy.deepcopy(self.indexes_ori)
-        # 每个epoch之前洗乱
-        np.random.shuffle(self.indexes)
-        self.indexes = self.indexes[:self._len]
+        size = self._raw_idx.size
+        return size
 
     def __getitem__(self, idx):
-        img_idx = self.indexes[idx]
-        image = self._load_raw_image(self._raw_idx[img_idx])
+        image = self._load_raw_image(self._raw_idx[idx])
         assert isinstance(image, np.ndarray)
         assert list(image.shape) == self.image_shape
         assert image.dtype == np.uint8
-        if self._xflip[img_idx]:
+        if self._xflip[idx]:
             assert image.ndim == 3 # CHW
             image = image[:, :, ::-1]
         image_gen_c = [self.get_label(np.random.randint(len(self))) for _ in range(self.len_phases)]
-        return image.copy(), self.get_label(img_idx), image_gen_c
+        return image.copy(), self.get_label(idx), image_gen_c, self._raw_idx[idx]
 
     def get_label(self, idx):
         label = self._get_raw_labels()[self._raw_idx[idx]]
