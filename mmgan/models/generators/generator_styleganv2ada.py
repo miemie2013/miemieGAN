@@ -583,6 +583,10 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
         # Update moving average of W.
         if self.w_avg_beta is not None and self.training and not skip_w_avg_update:
             self.w_avg.copy_(x.detach().mean(dim=0).lerp(self.w_avg, self.w_avg_beta))
+            # bz = x.shape[0]
+            # gpu0_w_avg = x.detach()[:bz//2].mean(dim=0).lerp(self.w_avg, self.w_avg_beta)
+            # gpu1_w_avg = x.detach()[bz//2:].mean(dim=0).lerp(self.w_avg, self.w_avg_beta)
+            # self.w_avg.copy_(gpu0_w_avg)
 
         # Broadcast.
         if self.num_ws is not None:

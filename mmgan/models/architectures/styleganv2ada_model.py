@@ -139,6 +139,7 @@ class StyleGANv2ADAModel:
 
         self.align_grad = False
         # self.align_grad = True
+        self.align_2gpu_1gpu = True
 
         self.is_distributed = False
 
@@ -253,6 +254,11 @@ class StyleGANv2ADAModel:
             if gen_c is not None:
                 gen_c_ = gen_c[:batch_size]
 
+            # if self.align_2gpu_1gpu:
+            #     aaaaaaaaaaaaaaa1 = gen_z[:2]
+            #     aaaaaaaaaaaaaaa2 = gen_z[4:6]
+            #     aaaaaaaaaaaaaaaaa = torch.cat([aaaaaaaaaaaaaaa1, aaaaaaaaaaaaaaa2], 0)
+            #     gen_img, gen_ws = self.run_G(aaaaaaaaaaaaaaaaa, gen_c_, sync=sync)
             gen_img, gen_ws = self.run_G(gen_z[:batch_size], gen_c_, sync=sync)
             # if self.align_grad:
             #     print_diff(dic, phase + ' gen_img', gen_img)
@@ -430,6 +436,57 @@ class StyleGANv2ADAModel:
         #     if isDebug:
         #         npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
         #     dic2 = np.load(npz_path)
+        #     aaaaaaaaa = dic2['phase_real_img']
+        #     phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
+        # if self.align_2gpu_1gpu:
+        #     print('======================== batch%.5d.npz ========================'%self.batch_idx)
+        #     npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+        #     isDebug = True if sys.gettrace() else False
+        #     if isDebug:
+        #         npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, rank)
+        #     dic2 = np.load(npz_path)
+        #     npz_path = 'batch%.5d_rank%.2d.npz'%(self.batch_idx, 1)
+        #     isDebug = True if sys.gettrace() else False
+        #     if isDebug:
+        #         npz_path = '../batch%.5d_rank%.2d.npz'%(self.batch_idx, 1)
+        #     dic333 = np.load(npz_path)
+        #     dic222222222 = {}
+        #     for kk in dic2.keys():
+        #         v1 = dic2[kk]
+        #         v2 = dic333[kk]
+        #         if '_w_grad' in kk or '_b_grad' in kk:
+        #             ddd = np.sum((v1 - v2) ** 2)
+        #             if ddd > 0.0000001:
+        #                 print(kk)
+        #                 dic222222222[kk] = (v1 + v2) / 2.0
+        #             else:
+        #                 dic222222222[kk] = v1
+        #         elif 'w_avg' in kk:
+        #             # 单机多卡训练时，w_avg的更新情况：强制使用 0号gpu 更新后的w_avg 作为整体更新后的w_avg
+        #             ddd = np.sum((v1 - v2) ** 2)   # 每张卡上的w_avg是不同的
+        #             dic222222222[kk] = v1
+        #         elif 'all_gen_z' in kk:
+        #             batch_gpu = 4
+        #             num_gpus = 2  # 显卡数量
+        #             batch_size = batch_gpu * num_gpus
+        #
+        #             v1 = np.reshape(v1, (len(self.phases), num_gpus, batch_gpu, self.z_dim))
+        #             v2 = np.reshape(v2, (len(self.phases), num_gpus, batch_gpu, self.z_dim))
+        #             v3 = np.concatenate([v1[:, :1, :, :], v2[:, :1, :, :]], 1)
+        #             v3 = np.reshape(v3, (-1, self.z_dim))
+        #             dic222222222[kk] = v3
+        #         elif 'augment_pipe_p' in kk:
+        #             ddd = np.sum((v1 - v2) ** 2)
+        #             assert ddd < 0.0000001
+        #             dic222222222[kk] = v1
+        #         elif 'aaaaaaaaaa1' in kk:
+        #             ddd = np.sum((v1 - v2) ** 2)
+        #             assert ddd < 0.0000001
+        #             dic222222222[kk] = v1
+        #         else:
+        #             v3 = np.concatenate([v1, v2], 0)
+        #             dic222222222[kk] = v3
+        #     dic2 = dic222222222
         #     aaaaaaaaa = dic2['phase_real_img']
         #     phase_real_img = torch.Tensor(aaaaaaaaa).to(device).to(torch.float32)
 
