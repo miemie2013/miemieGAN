@@ -88,6 +88,16 @@ class StyleGANv2ADAModel:
         self.mapping.train()
         self.synthesis_ema.eval()
         self.mapping_ema.eval()
+        # G和G_ema有相同的初始权重
+        ema_beta = 0.0
+        for p_ema, p in zip(self.mapping_ema.parameters(), self.mapping.parameters()):
+            p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p
+        for b_ema, b in zip(self.mapping_ema.buffers(), self.mapping.buffers()):
+            b_ema.copy_(b)
+        for p_ema, p in zip(self.synthesis_ema.parameters(), self.synthesis.parameters()):
+            p_ema.copy_(p.lerp(p_ema, ema_beta))   # p_ema = ema_beta * p_ema + (1 - ema_beta) * p
+        for b_ema, b in zip(self.synthesis_ema.buffers(), self.synthesis.buffers()):
+            b_ema.copy_(b)
         if discriminator:
             self.discriminator = discriminator
             self.discriminator.train()
