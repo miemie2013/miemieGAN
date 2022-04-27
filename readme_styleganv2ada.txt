@@ -212,44 +212,28 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_1024_metfa
 
 
 
------------------------ 评估 -----------------------
-
-
 
 ----------------------- 训练 -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
+
+
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1     > stylegan2ada.log 2>&1 &
 
 
 
 ----------------------- 迁移学习，带上-c（--ckpt）参数读取预训练模型。 -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 2 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 1 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
 
 
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-
-CUDA_VISIBLE_DEVICES=0,1
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth
+迁移学习动漫头像数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
 
 
 CUDA_VISIBLE_DEVICES=0,1
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
-
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c styleganv2ada_512_afhqcat.pth > stylegan2ada.log 2>&1 &
-
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c styleganv2ada_512_afhqcat.pth
-
-
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c styleganv2ada_512_afhqcat.pth > stylegan2ada_128.log 2>&1 &
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
 
 
 
@@ -271,23 +255,18 @@ export CUDA_VISIBLE_DEVICES=4
 
 
 ----------------------- 恢复训练（加上参数--resume） -----------------------
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/7.pth --resume
+后台启动：
+nohup xxx     > stylegan2ada.log 2>&1 &
 
 
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_custom.py -d 1 -b 4 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/7.pth --resume > stylegan2ada.log 2>&1 &
-
-
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_128_custom.py -d 1 -b 14 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/7.pth --resume > stylegan2ada_128.log 2>&1 &
-
-
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_7400.pth --resume
+迁移学习动漫头像数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 1 -b 6 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
 
 
 CUDA_VISIBLE_DEVICES=0,1
-python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/7.pth --resume
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
 
-CUDA_VISIBLE_DEVICES=0,1
-nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 16 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --resume > stylegan2ada.log 2>&1 &
 
 
 ----------------------- 计算指标 -----------------------
