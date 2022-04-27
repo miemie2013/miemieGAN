@@ -237,10 +237,20 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d
 
 
 
+
+----------------------- Linux常用命令 -----------------------
+查看日志
+cat stylegan2ada.log
+
+查看日志(最后20行)
+tail -n 20 stylegan2ada.log
+
+
 看显存占用、GPU利用率
 watch -n 0.1 nvidia-smi
 
 
+虚拟环境相关：
 conda create -n pasta python=3.9
 
 conda activate pasta
