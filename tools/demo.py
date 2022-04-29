@@ -124,11 +124,6 @@ def main(exp, args):
         model = exp.get_model(device, 0)
     elif archi_name == 'StyleGANv3':
         model = exp.get_model(batch_size=1)
-        ckpt_state = {
-            "start_epoch": 0,
-            "model": model.state_dict(),
-        }
-        torch.save(model.state_dict(), "pytorch_fullyConnectedLayer.pth")
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 

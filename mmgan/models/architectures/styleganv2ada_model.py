@@ -635,6 +635,7 @@ class StyleGANv2ADAModel:
 
         return loss_numpys
 
+    @torch.no_grad()
     def test_iter(self, metrics=None):
         z = self.input['z']
         seed = self.input['seed']
@@ -663,6 +664,13 @@ class StyleGANv2ADAModel:
         img_bgr = img_rgb[:, :, [2, 1, 0]]
         return img_bgr, seed
 
+    @torch.no_grad()
+    def gen_images(self, z, c, truncation_psi=1, truncation_cutoff=None, **synthesis_kwargs):
+        ws = self.mapping_ema(z, c, truncation_psi=truncation_psi, truncation_cutoff=truncation_cutoff)
+        img = self.synthesis_ema(ws, **synthesis_kwargs)
+        return img
+
+    @torch.no_grad()
     def style_mixing(self, row_seeds, col_seeds, all_seeds, col_styles):
         all_z = self.input['z']
         # noise_mode = ['const', 'random', 'none']

@@ -175,7 +175,7 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/21.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
 (afhq)
@@ -198,6 +198,8 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom
 
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/21.pth --row_seeds 85,100 --col_seeds 55,821 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 (afhq)
@@ -280,11 +282,13 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d
 
 
 ----------------------- 计算指标 -----------------------
-(afhq)
-python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+转换inceptionv3的权重：
+wget https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/inception-2015-12-05.pt
+python tools/inception_convert_weights.py
 
 (afhq)
-python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+python tools/calc_metrics.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth -b 2 -n 50000 --inceptionv3_path inception-2015-12-05.pth --device gpu
+
 
 
 
