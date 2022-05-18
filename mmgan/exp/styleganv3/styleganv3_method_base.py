@@ -29,6 +29,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         self.kimgs = 25000
         self.print_interval = 10
         self.temp_img_interval = 100
+        self.save_step_interval = 1000
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
@@ -140,7 +141,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
         self.data_num_workers = 2
 
-    def get_model(self, device, batch_size=1):
+    def get_model(self, device, rank, batch_size=1):
         from mmgan.models import StyleGANv3_SynthesisNetwork, StyleGANv3_MappingNetwork, StyleGANv3_Discriminator, StyleGANv2ADA_AugmentPipe
         from mmgan.models import StyleGANv3Model
         if getattr(self, "model", None) is None:
@@ -155,32 +156,28 @@ class StyleGANv3_Method_Exp(BaseExp):
                 self.model_cfg['blur_init_sigma'] = 10
                 self.model_cfg['blur_fade_kimg'] = batch_size * 200 / 32
 
-            synthesis = StyleGANv3_SynthesisNetwork(**self.synthesis)
-            synthesis_ema = StyleGANv3_SynthesisNetwork(**self.synthesis)
+            synthesis = StyleGANv3_SynthesisNetwork(**self.synthesis).train().requires_grad_(False).to(device)
+            synthesis_ema = StyleGANv3_SynthesisNetwork(**self.synthesis).eval().requires_grad_(False).to(device)
             self.mapping['num_ws'] = synthesis.num_ws
-            mapping = StyleGANv3_MappingNetwork(**self.mapping)
-            mapping_ema = StyleGANv3_MappingNetwork(**self.mapping)
-            for name, param in synthesis_ema.named_parameters():
-                param.requires_grad = False
-            for name, param in mapping_ema.named_parameters():
-                param.requires_grad = False
-            discriminator = StyleGANv3_Discriminator(**self.discriminator)
+            mapping = StyleGANv3_MappingNetwork(**self.mapping).train().requires_grad_(False).to(device)
+            mapping_ema = StyleGANv3_MappingNetwork(**self.mapping).eval().requires_grad_(False).to(device)
+            discriminator = StyleGANv3_Discriminator(**self.discriminator).train().requires_grad_(False).to(device)
             augment_pipe = None
             adjust_p = False  # 是否调整augment_pipe的p
             if hasattr(self, 'augment_pipe') and (self.model_cfg['augment_p'] > 0 or self.model_cfg['ada_target'] is not None):
-                augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe).train().requires_grad_(False)
+                augment_pipe = StyleGANv2ADA_AugmentPipe(**self.augment_pipe).train().requires_grad_(False).to(device)
                 augment_pipe.p.copy_(torch.as_tensor(self.model_cfg['augment_p']))
                 if self.model_cfg['ada_target'] is not None:
                     adjust_p = True
 
-            # 第三方实现stylegan3时，不要忘记创建G和D的实例时，都需要设置其的requires_grad_(False)，因为第0步训练Gmain阶段时，D的权重应该不允许得到梯度。
+            # 第三方实现stylegan2-ada时，不要忘记创建G和D的实例时，都需要设置其的requires_grad_(False)，因为第0步训练Gmain阶段时，D的权重应该不允许得到梯度。
             synthesis.requires_grad_(False)
             synthesis_ema.requires_grad_(False)
             mapping.requires_grad_(False)
             mapping_ema.requires_grad_(False)
             discriminator.requires_grad_(False)
-            self.model = StyleGANv3Model(synthesis, synthesis_ema, mapping, mapping_ema,
-                                         discriminator=discriminator, augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
+            self.model = StyleGANv3Model(synthesis, synthesis_ema, mapping, mapping_ema, discriminator, device, rank,
+                                         augment_pipe=augment_pipe, adjust_p=adjust_p, **self.model_cfg)
         return self.model
 
     def get_data_loader(
@@ -210,7 +207,7 @@ class StyleGANv3_Method_Exp(BaseExp):
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
 
-        sampler = InfiniteSampler(len(self.dataset), shuffle=False, seed=self.seed if self.seed else 0)
+        sampler = InfiniteSampler(len(self.dataset), shuffle=True, seed=self.seed if self.seed else 0)
 
         batch_sampler = torch.utils.data.sampler.BatchSampler(
             sampler=sampler,

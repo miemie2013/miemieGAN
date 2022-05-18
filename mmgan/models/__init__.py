@@ -15,3 +15,5 @@ from .generators.generator_styleganv3 import StyleGANv3_MappingNetwork
 from .discriminators.discriminator_styleganv2ada import StyleGANv2ADA_Discriminator
 from .discriminators.discriminator_styleganv3 import StyleGANv3_Discriminator
 
+from .networks.inception_pytorch import Inception_v3
+

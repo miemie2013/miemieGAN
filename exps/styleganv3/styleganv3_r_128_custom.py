@@ -22,6 +22,7 @@ class Exp(StyleGANv3_Method_Exp):
         self.kimgs = 5000
         self.print_interval = 10
         self.temp_img_interval = 100
+        self.save_step_interval = 1000
         self.eval_interval = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
@@ -132,7 +133,7 @@ class Exp(StyleGANv3_Method_Exp):
             z_dim=self.z_dim,
         )
         # 默认是4。如果报错“OSError: [WinError 1455] 页面文件太小,无法完成操作”，设置为2或0解决。
-        self.data_num_workers = 2
+        self.data_num_workers = 0
 
         # 判断是否是调试状态
         isDebug = True if sys.gettrace() else False

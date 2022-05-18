@@ -5,9 +5,10 @@
 import argparse
 import os
 import time
-import pickle
-from loguru import logger
 
+import numpy as np
+from loguru import logger
+import datetime
 import cv2
 
 import torch
@@ -19,6 +20,7 @@ sys.path.insert(0, parent_path)
 
 from mmgan.data.data_augment import *
 from mmgan.exp import get_exp
+from mmgan.models import Inception_v3
 from mmgan.utils import fuse_model, get_model_info, postprocess, vis, get_classes, vis2, load_ckpt
 
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
@@ -26,9 +28,6 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN Demo!")
-    parser.add_argument(
-        "demo", default="fid50k_full", help="demo type, eg. fid50k_full, fid50k_full or fid50k_full"
-    )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 
     parser.add_argument(
@@ -36,29 +35,14 @@ def make_parser():
         action="store_true",
         help="whether to save the inference result of image/video",
     )
+    parser.add_argument("-db", "--dataset_batch_size", type=int, default=64, help="dataset batch size")
+    parser.add_argument("-b", "--batch_size", type=int, default=2, help="batch size")
+    parser.add_argument("-n", "--num_gen", type=int, default=50000, help="num gen")
     parser.add_argument(
-        "--seeds",
-        default="85,100,75,458,1500",
+        "--inceptionv3_path",
+        default="",
         type=str,
-        help="random seeds",
-    )
-    parser.add_argument(
-        "--row_seeds",
-        default="85,100,75,458,1500",
-        type=str,
-        help="random seeds",
-    )
-    parser.add_argument(
-        "--col_seeds",
-        default="55,821,1789,293",
-        type=str,
-        help="random seeds",
-    )
-    parser.add_argument(
-        "--col_styles",
-        default="0,1,2,3,4,5,6",
-        type=str,
-        help="col_styles",
+        help="inceptionv3_path",
     )
 
     # exp file
@@ -84,7 +68,6 @@ def make_parser():
         help="Adopting mix precision evaluating.",
     )
     return parser
-
 
 
 class FeatureStats:
@@ -127,23 +110,16 @@ class FeatureStats:
             self.raw_mean += x64.sum(axis=0)
             self.raw_cov += x64.T @ x64
 
-    def append_torch(self, x, num_gpus=1, rank=0):
+    def append_tensor(self, x, num_gpus=1, rank=0):
         assert isinstance(x, torch.Tensor) and x.ndim == 2
         assert 0 <= rank < num_gpus
-        if num_gpus > 1:
-            ys = []
-            for src in range(num_gpus):
-                y = x.clone()
-                torch.distributed.broadcast(y, src=src)
-                ys.append(y)
-            x = torch.stack(ys, dim=1).flatten(0, 1) # interleave samples
         self.append(x.cpu().numpy())
 
     def get_all(self):
         assert self.capture_all
         return np.concatenate(self.all_features, axis=0)
 
-    def get_all_torch(self):
+    def get_all_tensor(self):
         return torch.from_numpy(self.get_all())
 
     def get_mean_cov(self):
@@ -153,68 +129,115 @@ class FeatureStats:
         cov = cov - np.outer(mean, mean)
         return mean, cov
 
-    def save(self, pkl_file):
-        with open(pkl_file, 'wb') as f:
-            pickle.dump(self.__dict__, f)
 
-    @staticmethod
-    def load(pkl_file):
-        with open(pkl_file, 'rb') as f:
-            s = dnnlib.EasyDict(pickle.load(f))
-        obj = FeatureStats(capture_all=s.capture_all, max_items=s.max_items)
-        obj.__dict__.update(s)
-        return obj
+@torch.no_grad()
+def calc_stylegan2ada_metric(exp, inceptionv3_model, model, device, dataset_batch_size, batch_size, num_gen, G_kwargs={}):
+    from mmgan.data import (
+        StyleGANv2ADADataset,
+        InfiniteSampler,
+        worker_init_reset_seed,
+    )
+    from mmgan.utils import (
+        wait_for_the_master,
+        get_local_rank,
+    )
 
+    local_rank = get_local_rank()
+    dataset = StyleGANv2ADADataset(
+        dataroot=exp.dataroot,
+        batch_size=dataset_batch_size,
+        **exp.dataset_train_cfg,
+    )
+    n_dataset = len(dataset)
+    return_features = True
 
-def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64, data_loader_kwargs=None, max_items=None, **stats_kwargs):
-    dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
-    if data_loader_kwargs is None:
-        data_loader_kwargs = dict(pin_memory=True, num_workers=3, prefetch_factor=2)
+    sampler = torch.utils.data.SequentialSampler(dataset)
+    dataloader_kwargs = {
+        "num_workers": 0,
+        "pin_memory": True,
+        "sampler": sampler,
+    }
+    dataloader_kwargs["batch_size"] = dataset_batch_size
+    test_dataloader = torch.utils.data.DataLoader(dataset, **dataloader_kwargs)
 
-    # Try to lookup from cache.
-    cache_file = None
-    # if opts.cache:
-    #     # Choose cache file name.
-    #     args = dict(dataset_kwargs=opts.dataset_kwargs, detector_url=detector_url, detector_kwargs=detector_kwargs, stats_kwargs=stats_kwargs)
-    #     md5 = hashlib.md5(repr(sorted(args.items())).encode('utf-8'))
-    #     cache_tag = f'{dataset.name}-{get_feature_detector_name(detector_url)}-{md5.hexdigest()}'
-    #     cache_file = dnnlib.make_cache_dir_path('gan-metrics', cache_tag + '.pkl')
-    #
-    #     # Check if the file exists (all processes must agree).
-    #     flag = os.path.isfile(cache_file) if opts.rank == 0 else False
-    #     if opts.num_gpus > 1:
-    #         flag = torch.as_tensor(flag, dtype=torch.float32, device=opts.device)
-    #         torch.distributed.broadcast(tensor=flag, src=0)
-    #         flag = (float(flag.cpu()) != 0)
-    #
-    #     # Load.
-    #     if flag:
-    #         return FeatureStats.load(cache_file)
+    iter_loader = iter(test_dataloader)
+    max_eval_steps = len(test_dataloader)
 
-    # Initialize.
-    num_items = len(dataset)
-    if max_items is not None:
-        num_items = min(num_items, max_items)
-    stats = FeatureStats(max_items=num_items, **stats_kwargs)
-    progress = opts.progress.sub(tag='dataset features', num_items=num_items, rel_lo=rel_lo, rel_hi=rel_hi)
-    detector = get_feature_detector(url=detector_url, device=opts.device, num_gpus=opts.num_gpus, rank=opts.rank, verbose=progress.verbose)
+    num_items = len(test_dataloader)
+    real_stats_kwargs = dict(capture_mean_cov=True,)
+    real_stats = FeatureStats(max_items=n_dataset, **real_stats_kwargs)
+
+    log_interval = 1024
+    for i in range(max_eval_steps):
+        n_imgs = i * dataset_batch_size
+        if n_dataset < log_interval or n_imgs % log_interval == 0:
+            logger.info('dataset features: [%d/%d]' % (n_imgs, n_dataset))
+
+        data = next(iter_loader)
+        real_image, label, image_gen_c, _ = data
+        real_image = real_image.to(torch.float32)  # RGB格式
+        real_image = real_image.to(device)
+        real_features = inceptionv3_model(real_image, return_features=return_features)
+        real_stats.append_tensor(real_features, num_gpus=1, rank=0)
+    mu_real, sigma_real = real_stats.get_mean_cov()
+
+    batch_gen = min(batch_size, 4)
+    assert batch_size % batch_gen == 0
+
+    fake_stats_kwargs = dict(capture_mean_cov=True,)
+    fake_stats = FeatureStats(max_items=num_gen, **fake_stats_kwargs)
+
+    from collections import deque
+    time_stat = deque(maxlen=20)
+    start_time = time.time()
+    end_time = time.time()
+    num_imgs = num_gen
+    start = time.time()
+    i = 0
 
     # Main loop.
-    item_subset = [(i * opts.num_gpus + opts.rank) % num_items for i in range((num_items - 1) // opts.num_gpus + 1)]
-    for images, _labels in torch.utils.data.DataLoader(dataset=dataset, sampler=item_subset, batch_size=batch_size, **data_loader_kwargs):
+    while not fake_stats.is_full():
+        images = []
+        for _i in range(batch_size // batch_gen):
+            z = torch.randn([batch_gen, exp.z_dim], dtype=torch.float32)
+            z = z.to(device)
+            c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_gen)]
+            c = torch.from_numpy(np.stack(c))
+            c = c.to(device)
+            img = model.gen_images(z=z, c=c, **G_kwargs)
+            img = (img * 127.5 + 128)
+            img = img.clamp(0, 255)
+            images.append(img)
+        images = torch.cat(images)  # RGB格式
         if images.shape[1] == 1:
             images = images.repeat([1, 3, 1, 1])
-        features = detector(images.to(opts.device), **detector_kwargs)
-        stats.append_torch(features, num_gpus=opts.num_gpus, rank=opts.rank)
-        progress.update(stats.num_items)
+        fake_features = inceptionv3_model(images, return_features=return_features)
+        fake_stats.append_tensor(fake_features, num_gpus=1, rank=0)
 
-    # Save to cache.
-    if cache_file is not None and opts.rank == 0:
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        temp_file = cache_file + '.' + uuid.uuid4().hex
-        stats.save(temp_file)
-        os.replace(temp_file, cache_file) # atomic
-    return stats
+        # 估计剩余时间
+        start_time = end_time
+        end_time = time.time()
+        time_stat.append(end_time - start_time)
+        time_cost = np.mean(time_stat)
+        eta_sec = (num_imgs - i * batch_size) * time_cost
+        eta = str(datetime.timedelta(seconds=int(eta_sec)))
+        n_imgs = i * batch_size
+        if num_gen < log_interval or n_imgs % log_interval == 0:
+            logger.info('generator features: [%d/%d], eta=%s.' % (n_imgs, num_gen, eta))
+
+        i += 1
+    cost = time.time() - start
+    logger.info('total time: {0:.6f}s'.format(cost))
+    logger.info('Speed: %.6fs per image,  %.1f FPS.' % ((cost / num_imgs), (num_imgs / cost)))
+    mu_gen, sigma_gen = fake_stats.get_mean_cov()
+
+    m = np.square(mu_gen - mu_real).sum()
+    import scipy.linalg
+    s, _ = scipy.linalg.sqrtm(np.dot(sigma_gen, sigma_real), disp=False) # pylint: disable=no-member
+    fid = np.real(m + np.trace(sigma_gen + sigma_real - s * 2))
+    fid = float(fid)
+    logger.info('FID: %.6f' % (fid, ))
+
 
 
 def main(exp, args):
@@ -234,114 +257,59 @@ def main(exp, args):
     # 算法名字
     archi_name = exp.archi_name
 
+    device = torch.device('cpu')
+    if args.device == "gpu":
+        device = torch.device('cuda:0')
+
     if archi_name == 'StyleGANv2ADA':
-        model = exp.get_model()
+        model = exp.get_model(device, 0)
     elif archi_name == 'StyleGANv3':
         model = exp.get_model(batch_size=1)
-        ckpt_state = {
-            "start_epoch": 0,
-            "model": model.state_dict(),
-        }
-        torch.save(model.state_dict(), "pytorch_fullyConnectedLayer.pth")
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
 
     if args.device == "gpu":
-        model.cuda()
+        model.synthesis.cuda()
+        model.synthesis_ema.cuda()
+        model.mapping.cuda()
+        model.mapping_ema.cuda()
+        model.discriminator.cuda()
         if args.fp16:
             model.half()  # to FP16
-    model.eval()
+    model.synthesis.eval()
+    model.synthesis_ema.eval()
+    model.mapping.eval()
+    model.mapping_ema.eval()
+    model.discriminator.eval()
 
-    if args.demo == "fid50k_full":
-        # 不同的算法输入不同，新增算法时这里也要增加elif
-        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
-            # 加载模型权重
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            ckpt = torch.load(ckpt_file, map_location="cpu")
-            model = load_ckpt(model, ckpt["model"])
-            logger.info("loaded checkpoint done.")
-
-            seeds = args.seeds
-            seeds = seeds.split(',')
-            seeds = [int(seed) for seed in seeds]
-            current_time = time.localtime()
-
-            for seed in seeds:
-                z = np.random.RandomState(seed).randn(1, model.z_dim)
-                z = torch.from_numpy(z)
-                z = z.float()
-                if args.device == "gpu":
-                    z = z.cuda()
-                    if args.fp16:
-                        z = z.half()  # to FP16
-                data = {
-                    'z': z,
-                }
-                model.setup_input(data)
-                with torch.no_grad():
-                    img_bgr = model.test_iter()
-                    if args.save_result:
-                        save_folder = os.path.join(
-                            vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-                        )
-                        os.makedirs(save_folder, exist_ok=True)
-                        save_file_name = os.path.join(save_folder, f'seed{seed:08d}.png')
-                        logger.info("Saving generation result in {}".format(save_file_name))
-                        cv2.imwrite(save_file_name, img_bgr)
-
+    # 不同的算法输入不同，新增算法时这里也要增加elif
+    if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
+        # 加载模型权重
+        if args.ckpt is None:
+            ckpt_file = os.path.join(file_name, "best_ckpt.pth")
         else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
-    elif args.demo == "style_mixing":
-        # 不同的算法输入不同，新增算法时这里也要增加elif
-        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
-            # 加载模型权重
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            ckpt = torch.load(ckpt_file, map_location="cpu")
-            model = load_ckpt(model, ckpt["model"])
-            logger.info("loaded checkpoint done.")
+            ckpt_file = args.ckpt
+        logger.info("loading checkpoint")
+        ckpt = torch.load(ckpt_file, map_location="cpu")
+        model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+        model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+        model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+        model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+        model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
+        logger.info("loaded checkpoint done.")
 
-            row_seeds = args.row_seeds.split(',')
-            row_seeds = [int(seed) for seed in row_seeds]
-            col_seeds = args.col_seeds.split(',')
-            col_seeds = [int(seed) for seed in col_seeds]
-            col_styles = args.col_styles.split(',')
-            col_styles = [int(seed) for seed in col_styles]
-            all_seeds = list(set(row_seeds + col_seeds))
-            current_time = time.localtime()
+        # build inceptionv3
+        inceptionv3_model = Inception_v3()
+        param_dict = torch.load(args.inceptionv3_path, map_location="cpu")
+        inceptionv3_model.load_state_dict(param_dict)
+        inceptionv3_model.eval()
+        inceptionv3_model = inceptionv3_model.to(device)
 
-            all_z = np.stack([np.random.RandomState(seed).randn(model.z_dim) for seed in all_seeds])
-            all_z = torch.from_numpy(all_z)
-            all_z = all_z.float()
-            if args.device == "gpu":
-                all_z = all_z.cuda()
-                if args.fp16:
-                    all_z = all_z.half()  # to FP16
-            data = {
-                'z': all_z,
-            }
-            model.setup_input(data)
-            with torch.no_grad():
-                img_bgr = model.style_mixing(row_seeds, col_seeds, all_seeds, col_styles)
-                if args.save_result:
-                    save_folder = os.path.join(
-                        vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-                    )
-                    os.makedirs(save_folder, exist_ok=True)
-                    save_file_name = os.path.join(save_folder, f'style_mixing.png')
-                    logger.info("Saving generation result in {}".format(save_file_name))
-                    cv2.imwrite(save_file_name, img_bgr)
-
-        else:
-            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
+        # calc stylegan2ada metric
+        calc_stylegan2ada_metric(exp, inceptionv3_model, model, device, args.dataset_batch_size, args.batch_size, args.num_gen)
+    else:
+        raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
 
 if __name__ == "__main__":
@@ -352,6 +320,7 @@ if __name__ == "__main__":
         print('Debug Mode.')
         args.exp_file = '../' + args.exp_file
         args.ckpt = '../' + args.ckpt   # 如果是绝对路径，把这一行注释掉
+        args.inceptionv3_path = '../' + args.inceptionv3_path   # 如果是绝对路径，把这一行注释掉
     exp = get_exp(args.exp_file)
 
     main(exp, args)

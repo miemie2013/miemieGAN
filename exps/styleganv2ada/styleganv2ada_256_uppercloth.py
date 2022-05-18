@@ -27,8 +27,8 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.basic_glr_per_img = 0.0025 / 8.0
-        self.basic_dlr_per_img = 0.0025 / 8.0
+        self.basic_glr_per_img = 0.0025 / 16.0
+        self.basic_dlr_per_img = 0.0025 / 16.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -51,7 +51,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         self.w_dim = 512
         self.z_dim = 512
         self.c_dim = 0
-        self.img_resolution = 32
+        self.img_resolution = 256
         self.img_channels = 3
         self.channel_base = 32768
         self.channel_max = 512
@@ -120,7 +120,7 @@ class Exp(StyleGANv2ADA_Method_Exp):
         )
 
         # ---------------- dataset config ---------------- #
-        self.dataroot = '../data/data42681/afhq/train/dog_32'
+        self.dataroot = '../data/upper_cloth_256'
         self.dataset_train_cfg = dict(
             resolution=self.img_resolution,
             use_labels=False,

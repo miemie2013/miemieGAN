@@ -175,7 +175,7 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/23.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
 (afhq)
@@ -198,6 +198,8 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom
 
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/23.pth --row_seeds 85,100 --col_seeds 55,821 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 (afhq)
@@ -234,6 +236,15 @@ nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d
 
 CUDA_VISIBLE_DEVICES=0,1
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
+
+
+迁移学习上衣256数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -d 1 -b 6 -eb 1 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
+
+
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -d 2 -b 8 -eb 2 -c styleganv2ada_512_afhqcat.pth     > stylegan2ada.log 2>&1 &
 
 
 
@@ -278,15 +289,49 @@ CUDA_VISIBLE_DEVICES=0,1
 nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -d 2 -b 8 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
 
 
+迁移学习上衣256数据集：
+CUDA_VISIBLE_DEVICES=0
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -d 1 -b 6 -eb 1 -c StyleGANv2ADA_outputs/styleganv2ada_256_uppercloth/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
+
+
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -d 2 -b 8 -eb 2 -c StyleGANv2ADA_outputs/styleganv2ada_256_uppercloth/0_1000.pth --resume     > stylegan2ada.log 2>&1 &
+
+
+
 
 ----------------------- 计算指标 -----------------------
-(afhq)
-python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+转换inceptionv3的权重：
+wget https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/inception-2015-12-05.pt
+python tools/inception_convert_weights.py
 
 (afhq)
-python tools/calc_metrics.py fid50k_full -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+python tools/calc_metrics.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth -b 2 -n 50000 --inceptionv3_path inception-2015-12-05.pth --device gpu
 
 
+(动漫头像数据集)
+python tools/calc_metrics.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth -b 2 -n 50000 --inceptionv3_path inception-2015-12-05.pth --device gpu
+
+
+1机1卡，总批大小6，23.pth，
+2022-04-29 18:33:53.665 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 1839.711170s
+2022-04-29 18:33:53.665 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.036794s per image,  27.2 FPS.
+2022-04-29 18:33:57.580 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 14.723749
+
+1机2卡，总批大小8，22.pth，
+2022-05-07 10:17:41.038 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 1744.382321s
+2022-05-07 10:17:41.039 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.034888s per image,  28.7 FPS.
+2022-05-07 10:17:45.055 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 14.092427
+
+1机2卡，总批大小8，32.pth，
+2022-05-07 11:08:10.423 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 1748.136298s
+2022-05-07 11:08:10.426 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.034963s per image,  28.6 FPS.
+2022-05-07 11:08:14.463 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 12.598085
+
+1机2卡，总批大小8，65.pth，
+2022-05-09 10:03:12.317 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 1754.911271s
+2022-05-09 10:03:12.317 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.035098s per image,  28.5 FPS.
+2022-05-09 10:03:16.335 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 8.209035
 
 
 ----------------------- 导出为ONNX -----------------------

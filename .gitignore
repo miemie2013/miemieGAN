@@ -223,6 +223,8 @@ log*.txt
 *.pdparams
 *.pdopt
 *.pdmodel
+*.pdema
+*.whl
 *.npz
 *.zip
 *.pt
