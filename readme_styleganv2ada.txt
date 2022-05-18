@@ -178,8 +178,13 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/23.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_1500 --save_result --device gpu
+
+
 (afhq)
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 0_1500 --save_result --device gpu
 
 
 (metfaces)

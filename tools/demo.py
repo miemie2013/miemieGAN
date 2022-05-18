@@ -160,7 +160,15 @@ def main(exp, args):
             logger.info("loaded checkpoint done.")
 
             seeds = args.seeds
-            seeds = seeds.split(',')
+            if ',' in seeds:
+                seeds = seeds.split(',')
+            elif '_' in seeds:
+                seeds_start_end = seeds.split('_')
+                seeds_start = int(seeds_start_end[0])
+                seeds_end = int(seeds_start_end[1])
+                seeds = []
+                for ii in range(seeds_start, seeds_end + 1, 1):
+                    seeds.append(ii)
             seeds = [int(seed) for seed in seeds]
             current_time = time.localtime()
 
