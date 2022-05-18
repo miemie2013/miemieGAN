@@ -117,12 +117,22 @@ python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b
 
 
 ----------------------- 迁移学习，带上-c（--ckpt）参数读取预训练模型。 -----------------------
+后台启动：
+nohup xxx     > stylegan3.log 2>&1 &
+
+
+
 python tools/train.py -f exps/styleganv3/styleganv3_r_32_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_afhqv2_512.pth
 
 
-
+（花卉数据集，1机2卡训练时，总批大小只能开到2，每张卡占9G左右显存）
 python tools/train.py -f exps/styleganv3/styleganv3_r_128_custom.py -d 1 -b 1 -eb 1 -c stylegan3_r_afhqv2_512.pth
 
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv3/styleganv3_r_128_custom.py -d 2 -b 2 -eb 2 -c stylegan3_r_afhqv2_512.pth     > stylegan3.log 2>&1 &
+
+
+tail -n 20 stylegan3.log
 
 
 python tools/train.py -f exps/styleganv3/styleganv3_r_256_custom.py -d 1 -b 2 -eb 1 -c stylegan3_r_afhqv2_512.pth
