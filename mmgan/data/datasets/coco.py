@@ -376,60 +376,6 @@ class PPYOLO_COCOEvalDataset(torch.utils.data.Dataset):
         return pimage, im_size, id
 
 
-class FCOS_COCOEvalDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, json_file, ann_folder, name, cfg, sample_transforms):
-        self.data_dir = data_dir
-        self.json_file = json_file
-        self.ann_folder = ann_folder
-        self.name = name
-
-        # 验证集
-        val_path = os.path.join(self.data_dir, self.ann_folder, self.json_file)
-        val_pre_path = os.path.join(self.data_dir, self.name)
-
-        # 种类id
-        _catid2clsid, _clsid2catid, _clsid2cname, class_names = get_class_msg(val_path)
-
-        val_dataset = COCO(val_path)
-        val_img_ids = val_dataset.getImgIds()
-
-        keep_img_ids = []  # 只跑有gt的图片，跟随PaddleDetection
-        for img_id in val_img_ids:
-            ins_anno_ids = val_dataset.getAnnIds(imgIds=img_id, iscrowd=False)  # 读取这张图片所有标注anno的id
-            if len(ins_anno_ids) == 0:
-                continue
-            keep_img_ids.append(img_id)
-        val_img_ids = keep_img_ids
-
-        val_records = data_clean(val_dataset, val_img_ids, _catid2clsid, val_pre_path, 'val')
-
-        self.coco = val_dataset
-        self.records = val_records
-        self.context = cfg.context
-        self.sample_transforms = sample_transforms
-        self.catid2clsid = _catid2clsid
-        self.clsid2catid = _clsid2catid
-        self.num_record = len(val_records)
-        self.indexes = [i for i in range(self.num_record)]
-
-    def __len__(self):
-        return len(self.indexes)
-
-    def __getitem__(self, idx):
-        img_idx = self.indexes[idx]
-        sample = copy.deepcopy(self.records[img_idx])
-
-        # sample_transforms
-        for sample_transform in self.sample_transforms:
-            sample = sample_transform(sample, self.context)
-
-        # 取出感兴趣的项
-        pimage = sample['image']
-        im_info = sample['im_info']
-        im_id = sample['im_id']
-        return pimage, im_info, im_id
-
-
 class StyleGANv2ADADataset(torch.utils.data.Dataset):
     def __init__(self, dataroot, resolution=None,
                  max_size=None, use_labels=False, xflip=False, random_seed=0, len_phases=4, batch_size=1):
@@ -600,126 +546,145 @@ class StyleGANv2ADATestDataset(torch.utils.data.Dataset):
 
 
 
-class FCOS_COCOTrainDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, json_file, ann_folder, name, cfg, sample_transforms, batch_size):
-        self.data_dir = data_dir
-        self.json_file = json_file
-        self.ann_folder = ann_folder
-        self.name = name
-
-        # 训练集
-        train_path = os.path.join(self.data_dir, self.ann_folder, self.json_file)
-        train_pre_path = os.path.join(self.data_dir, self.name)
-
-        # 种类id
-        _catid2clsid, _clsid2catid, _clsid2cname, class_names = get_class_msg(train_path)
-
-        train_dataset = COCO(train_path)
-        train_img_ids = train_dataset.getImgIds()
-        train_records = data_clean(train_dataset, train_img_ids, _catid2clsid, train_pre_path, 'train')
-
-        self.coco = train_dataset
-        self.records = train_records
-        self.context = cfg.context
-        self.sample_transforms = sample_transforms
-        self.catid2clsid = _catid2clsid
-        self.clsid2catid = _clsid2catid
-        self.num_record = len(train_records)
-        self.with_mixup = cfg.decodeImage.get('with_mixup', False)
-        self.with_cutmix = cfg.decodeImage.get('with_cutmix', False)
-        self.with_mosaic = cfg.decodeImage.get('with_mosaic', False)
-        self.batch_size = batch_size
+from itertools import chain
+from pathlib import Path
 
 
-        # 一轮的步数。丢弃最后几个样本。
-        self.train_steps = self.num_record // batch_size
+def listdir(dname):
+    # targets = ['png', 'jpg', 'jpeg', 'JPG']
+    targets = ['png', 'jpg', 'jpeg']   # 为了去重
+    fnames = list(
+        chain(*[
+            list(Path(dname).rglob('*.' + ext))
+            for ext in targets
+        ]))
+    # 这里是咩酱加上的代码，windows系统下'jpg'和'JPG'后缀的图片重复，所以去重。
+    # fnames2 = []
+    # for i, fn in enumerate(fnames):
+    #     if fn not in fnames2:
+    #         fnames2.append(fn)
+    # fnames = fnames2
+    return fnames
 
-        # mixup、cutmix、mosaic数据增强的轮数
-        self.aug_epochs = cfg.aug_epochs
 
-        # 训练样本
-        self.indexes_ori = [i for i in range(self.num_record)]
-        self.indexes = copy.deepcopy(self.indexes_ori)
-        # 每个epoch之前洗乱
-        np.random.shuffle(self.indexes)
-        self.indexes = self.indexes[:self.train_steps * self.batch_size]
-        self._len = len(self.indexes)
+def _make_balanced_sampler(labels):
+    class_counts = np.bincount(labels)
+    class_weights = 1. / class_counts
+    weights = class_weights[labels]
+    return WeightedRandomSampler(weights, len(weights))
 
-        # 输出特征图数量
-        self.n_layers = len(cfg.head['fpn_stride'])
-        self._epoch = 0
 
+class ImageFolder(Dataset):
+    def __init__(self, root, use_sampler=False):
+        self.samples, self.targets = self._make_dataset(root)
+        self.use_sampler = use_sampler
+        if self.use_sampler:
+            self.sampler = _make_balanced_sampler(self.targets)
+            self.iter_sampler = iter(self.sampler)
+
+    def _make_dataset(self, root):
+        domains = os.listdir(root)
+        fnames, labels = [], []
+        for idx, domain in enumerate(sorted(domains)):
+            class_dir = os.path.join(root, domain)
+            cls_fnames = listdir(class_dir)
+            fnames += cls_fnames
+            labels += [idx] * len(cls_fnames)
+        # indexes = [i for i in range(len(fnames))]
+        # np.random.shuffle(indexes)
+        # fnames2, labels2 = [], []
+        # for i in indexes:
+        #     fnames2.append(fnames[i])
+        #     labels2.append(labels[i])
+        return fnames, labels
+        # return fnames2, labels2
+
+    def __getitem__(self, i):
+        if self.use_sampler:
+            try:
+                index = next(self.iter_sampler)
+            except StopIteration:
+                self.iter_sampler = iter(self.sampler)
+                index = next(self.iter_sampler)
+        else:
+            index = i
+        fname = self.samples[index]
+        label = self.targets[index]
+        return fname, label
 
     def __len__(self):
-        return self._len
+        return len(self.targets)
 
-    def set_epoch(self, epoch_id):
-        self._epoch = epoch_id
 
-        self.indexes = copy.deepcopy(self.indexes_ori)
-        # 每个epoch之前洗乱
-        np.random.shuffle(self.indexes)
-        self.indexes = self.indexes[:self._len]
+class ReferenceDataset(Dataset):
+    def __init__(self, root, use_sampler=None):
+        self.samples, self.targets = self._make_dataset(root)
+        self.use_sampler = use_sampler
+        if self.use_sampler:
+            self.sampler = _make_balanced_sampler(self.targets)
+            self.iter_sampler = iter(self.sampler)
+
+    def _make_dataset(self, root):
+        domains = os.listdir(root)
+        fnames, fnames2, labels = [], [], []
+        for idx, domain in enumerate(sorted(domains)):
+            class_dir = os.path.join(root, domain)
+            cls_fnames = listdir(class_dir)
+            fnames += cls_fnames
+            fnames2 += random.sample(cls_fnames, len(cls_fnames))
+            labels += [idx] * len(cls_fnames)
+        return list(zip(fnames, fnames2)), labels
+
+    def __getitem__(self, i):
+        if self.use_sampler:
+            try:
+                index = next(self.iter_sampler)
+            except StopIteration:
+                self.iter_sampler = iter(self.sampler)
+                index = next(self.iter_sampler)
+        else:
+            index = i
+        fname, fname2 = self.samples[index]
+        label = self.targets[index]
+        return fname, fname2, label
+
+    def __len__(self):
+        return len(self.targets)
+
+
+class StarGANv2Dataset(torch.utils.data.Dataset):
+    def __init__(self, dataroot, is_train, preprocess, test_count=0):
+        self.preprocess = preprocess
+        self.dataroot = dataroot
+        self.is_train = is_train
+        if self.is_train:
+            self.src_loader = ImageFolder(self.dataroot, use_sampler=True)
+            self.ref_loader = ReferenceDataset(self.dataroot, use_sampler=True)
+            self.counts = len(self.src_loader)
+        else:
+            files = os.listdir(self.dataroot)
+            if 'src' in files and 'ref' in files:
+                self.src_loader = ImageFolder(os.path.join(
+                    self.dataroot, 'src'))
+                self.ref_loader = ImageFolder(os.path.join(
+                    self.dataroot, 'ref'))
+            else:
+                self.src_loader = ImageFolder(self.dataroot)
+                self.ref_loader = ImageFolder(self.dataroot)
+            self.counts = min(test_count, len(self.src_loader))
+            self.counts = min(self.counts, len(self.ref_loader))
+
+    def __len__(self):
+        size = len(self.seeds)
+        return size
 
     def __getitem__(self, idx):
-        iter_id = idx // self.batch_size
-        img_idx = self.indexes[idx]
-        sample = copy.deepcopy(self.records[img_idx])
-        sample["curr_iter"] = iter_id
-
-        # 为mixup数据增强做准备
-        if self.with_mixup and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['mixup'] = copy.deepcopy(self.records[mix_idx])
-            sample['mixup']["curr_iter"] = iter_id
-
-        # 为cutmix数据增强做准备
-        if self.with_cutmix and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['cutmix'] = copy.deepcopy(self.records[mix_idx])
-            sample['cutmix']["curr_iter"] = iter_id
-
-        # 为mosaic数据增强做准备
-        if self.with_mosaic and self._epoch <= self.aug_epochs:
-            num = len(self.records)
-            mix_idx = np.random.randint(0, num)
-            while mix_idx == img_idx:   # 为了不选到自己
-                mix_idx = np.random.randint(0, num)
-            sample['mosaic1'] = copy.deepcopy(self.records[mix_idx])
-            sample['mosaic1']["curr_iter"] = iter_id
-
-            mix_idx2 = np.random.randint(0, num)
-            while mix_idx2 in [img_idx, mix_idx]:   # 为了不重复
-                mix_idx2 = np.random.randint(0, num)
-            sample['mosaic2'] = copy.deepcopy(self.records[mix_idx2])
-            sample['mosaic2']["curr_iter"] = iter_id
-
-            mix_idx3 = np.random.randint(0, num)
-            while mix_idx3 in [img_idx, mix_idx, mix_idx2]:   # 为了不重复
-                mix_idx3 = np.random.randint(0, num)
-            sample['mosaic3'] = copy.deepcopy(self.records[mix_idx3])
-            sample['mosaic3']["curr_iter"] = iter_id
-
-        # sample_transforms
-        for sample_transform in self.sample_transforms:
-            sample = sample_transform(sample, self.context)
-
-        # 取出感兴趣的项
-        pimage = sample['image']
-        im_info = sample['im_info']
-        im_id = sample['im_id']
-        h = sample['h']
-        w = sample['w']
-        is_crowd = sample['is_crowd']
-        gt_class = sample['gt_class']
-        gt_bbox = sample['gt_bbox']
-        gt_score = sample['gt_score']
-        return pimage, im_info, im_id, h, w, is_crowd, gt_class, gt_bbox, gt_score
+        seed = self.seeds[idx]
+        z = np.random.RandomState(seed).randn(self.z_dim, )
+        datas = {
+            'z': z,
+            'seed': seed,
+        }
+        return datas
 
 
