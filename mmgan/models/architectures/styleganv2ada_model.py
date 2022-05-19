@@ -678,6 +678,7 @@ class StyleGANv2ADAModel:
         truncation_psi = 1.0
         all_w = self.mapping_ema(all_z, None)
         w_avg = self.mapping_ema.w_avg
+        # 即w_avg和生成的风格向量all_w插值组成最后的风格向量，all_w占的比重是truncation_psi；
         all_w = w_avg + (all_w - w_avg) * truncation_psi
         w_dict = {seed: w for seed, w in zip(all_seeds, list(all_w))}
 

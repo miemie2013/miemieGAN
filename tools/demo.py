@@ -122,8 +122,12 @@ def main(exp, args):
 
     if archi_name == 'StyleGANv2ADA':
         model = exp.get_model(device, 0)
+        # 方便style_mixing输入合理的col_styles
+        logger.info('num_ws = %d'%model.synthesis_ema.num_ws)
     elif archi_name == 'StyleGANv3':
         model = exp.get_model(device, 0, batch_size=1)
+        # 方便style_mixing输入合理的col_styles
+        logger.info('num_ws = %d'%model.synthesis_ema.num_ws)
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 

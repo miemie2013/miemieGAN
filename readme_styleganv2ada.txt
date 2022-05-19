@@ -196,15 +196,19 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py 
 
 
 ----------------------- style_mixing -----------------------
+col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的风格向量的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
+即col_seeds提供了动作姿态，row_seeds提供了皮肤。具体解析请看readme_styleganv2ada_note.txt
+
+
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_512_custom/67.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
-python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/2.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
-python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/23.pth --row_seeds 85,100 --col_seeds 55,821 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 7,8,9,10,11,12,13 --save_result --device gpu
 
 
 (afhq)
