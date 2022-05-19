@@ -27,8 +27,8 @@ class Exp(StyleGANv3_Method_Exp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # learning_rate
-        self.basic_glr_per_img = 0.0025 / 32.0
-        self.basic_dlr_per_img = 0.002 / 32.0
+        self.basic_glr_per_img = 0.0025 / 16.0
+        self.basic_dlr_per_img = 0.002 / 16.0
         self.optimizer_cfg = dict(
             generator=dict(
                 beta1=0.0,
@@ -51,10 +51,14 @@ class Exp(StyleGANv3_Method_Exp):
         self.w_dim = 512
         self.z_dim = 512
         self.c_dim = 0
-        self.img_resolution = 1024
+        self.img_resolution = 256
         self.img_channels = 3
-        self.channel_base = 32768
-        self.channel_max = 512
+        # self.channel_base = 32768
+        # self.channel_max = 512
+        # self.channel_base = 16384
+        # self.channel_max = 256
+        self.channel_base = 8192
+        self.channel_max = 256
         self.synthesis_freeze_at = []
         self.discriminator_freeze_at = []
         self.stylegan_cfg = 'stylegan3-t'
@@ -103,7 +107,7 @@ class Exp(StyleGANv3_Method_Exp):
         self.model_cfg = dict(
             G_reg_interval=self.G_reg_interval,
             D_reg_interval=self.D_reg_interval,
-            r1_gamma=6.6,
+            r1_gamma=1.0,
             pl_batch_shrink=2,
             ema_kimg=-1,
             ema_rampup=None,

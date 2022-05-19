@@ -112,8 +112,22 @@ python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_t_1024_metfaces.
 
 
 ----------------------- 训练 -----------------------
+后台启动：
+nohup xxx     > stylegan3.log 2>&1 &
+
+
 python tools/train.py -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -d 1 -b 8 -eb 1
 
+
+(从头训练动漫头像数据集，styleganv3_s是自己新增的配置，减小了channel_base、channel_max，因为stylegan3太吃显存了！)
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv3/styleganv3_s_256_custom.py -d 2 -b 8 -eb 2     > stylegan3.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=0,1
+nohup python tools/train.py -f exps/styleganv3/styleganv3_s_256_custom.py -d 2 -b 8 -eb 2 -c StyleGANv3_outputs/styleganv3_s_256_custom/0_1000.pth --resume     > stylegan3.log 2>&1 &
+
+
+tail -n 20 stylegan3.log
 
 
 ----------------------- 迁移学习，带上-c（--ckpt）参数读取预训练模型。 -----------------------

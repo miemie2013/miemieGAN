@@ -19,7 +19,7 @@ class Exp(StyleGANv3_Method_Exp):
         self.D_reg_interval = 16
 
         self.max_epoch = None
-        self.kimgs = 5000
+        self.kimgs = 25000
         self.print_interval = 10
         self.temp_img_interval = 100
         self.save_step_interval = 1000
