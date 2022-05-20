@@ -195,6 +195,29 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py 
 
 
 
+----------------------- 渐变，从随机种子A的图像渐变成随机种子B的图像 -----------------------
+--frames 表示渐变的帧数。
+
+(动漫头像数据集)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
+
+
+(afhq)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+
+
+(metfaces)
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+
+
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_ffhq.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+
+
+
 ----------------------- style_mixing -----------------------
 col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的风格向量的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
 即col_seeds提供了动作姿态，row_seeds提供了皮肤。具体解析请看readme_styleganv2ada_note.txt

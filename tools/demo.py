@@ -28,7 +28,7 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN Demo!")
     parser.add_argument(
-        "demo", default="image", help="demo type, eg. image, video or style_mixing"
+        "demo", default="image", help="demo type, eg. image, video, style_mixing, A2B"
     )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 
@@ -60,6 +60,18 @@ def make_parser():
         default="0,1,2,3,4,5,6",
         type=str,
         help="col_styles",
+    )
+    parser.add_argument(
+        "--frames",
+        default=120,
+        type=int,
+        help="A2B frames",
+    )
+    parser.add_argument(
+        "--video_fps",
+        default=30,
+        type=int,
+        help="A2B video_fps",
     )
 
     # exp file
@@ -252,6 +264,86 @@ def main(exp, args):
                     logger.info("Saving generation result in {}".format(save_file_name))
                     cv2.imwrite(save_file_name, img_bgr)
 
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
+    elif args.demo == "A2B":
+        # 不同的算法输入不同，新增算法时这里也要增加elif
+        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
+            # 加载模型权重
+            if args.ckpt is None:
+                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+            else:
+                ckpt_file = args.ckpt
+            logger.info("loading checkpoint")
+            ckpt = torch.load(ckpt_file, map_location="cpu")
+            model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+            model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+            model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+            model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+            model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
+            logger.info("loaded checkpoint done.")
+
+            seeds = args.seeds
+            if ',' in seeds:
+                seeds = seeds.split(',')
+            seeds = [int(seed) for seed in seeds]
+            current_time = time.localtime()
+
+            zs = []
+            for seed in seeds:
+                z = np.random.RandomState(seed).randn(1, model.z_dim)
+                z = torch.from_numpy(z)
+                z = z.float()
+                if args.device == "gpu":
+                    z = z.cuda()
+                    if args.fp16:
+                        z = z.half()  # to FP16
+                zs.append(z)
+
+            total_frames = args.frames * (len(seeds) - 1) + 1
+            save_file_names = []
+            save_folder = None
+            for frame_id in range(total_frames):
+                z_idx = frame_id // args.frames
+                if frame_id < total_frames - 1:
+                    z0 = zs[z_idx]
+                    z1 = zs[z_idx + 1]
+                    # 插值
+                    beta = (frame_id % args.frames) / args.frames
+                    z = z0.lerp(z1, beta)   # z1占的比重是beta, z0占的比重是(1.0 - beta)
+                else:
+                    z = zs[z_idx]
+
+                seed = np.array([0]).astype(np.int32)
+                seed = torch.from_numpy(seed)
+                data = {
+                    'z': z,
+                    'seed': seed,
+                }
+                model.setup_input(data)
+                with torch.no_grad():
+                    img_bgr, seed_i = model.test_iter()
+                    if args.save_result:
+                        save_folder = os.path.join(
+                            vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
+                        )
+                        os.makedirs(save_folder, exist_ok=True)
+                        save_file_name = os.path.join(save_folder, f'frame_{frame_id:08d}.png')
+                        logger.info("Saving generation result in {}".format(save_file_name))
+                        cv2.imwrite(save_file_name, img_bgr)
+                        save_file_names.append(save_file_name)
+            # 合成视频
+            save_video_path = os.path.join(save_folder, f'video.avi')
+            frame_0 = cv2.imread(save_file_names[0])
+            img_size = (frame_0.shape[0], frame_0.shape[1])
+            fps = args.video_fps
+            fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+            video_writer = cv2.VideoWriter(save_video_path, fourcc, fps, img_size)
+            for fanme in save_file_names:
+                frame = cv2.imread(fanme)
+                video_writer.write(frame)
+            video_writer.release()
+            logger.info("Saving video result in {}".format(save_video_path))
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
