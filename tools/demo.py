@@ -309,7 +309,8 @@ def main(exp, args):
                     A2B_mixing_w = A2B_mixing_w.unsqueeze(0).unsqueeze(0).repeat([1, model.synthesis_ema.num_ws, 1])
                 else:
                     A2B_mixing_seed = get_seeds(A2B_mixing_seed)
-                    z = np.random.RandomState(A2B_mixing_seed).randn(1, model.z_dim)
+                    assert len(A2B_mixing_seed) == 1, 'A2B_mixing_seed only supports 1 seed.'
+                    z = np.random.RandomState(A2B_mixing_seed[0]).randn(1, model.z_dim)
                     z = torch.from_numpy(z)
                     z = z.float()
                     if args.device == "gpu":
