@@ -28,7 +28,7 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN Demo!")
     parser.add_argument(
-        "demo", default="image", help="demo type, eg. image, video, style_mixing, A2B"
+        "demo", default="image", help="demo type, eg. image, style_mixing, A2B"
     )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 

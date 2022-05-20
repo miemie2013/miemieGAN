@@ -215,8 +215,6 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c St
 
 
 (afhq，你会发现stylegan2ada特有的“屏幕粘毛”视觉观感)
-python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
-
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
 (afhqv2，你会发现stylegan3解决了“屏幕粘毛”的问题)
