@@ -175,7 +175,17 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/23.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --noise_mode random --trunc 0.3 --save_result --device gpu
+
+(trunc==1.0时，StyleGANv2ADA_MappingNetwork的w_avg不参与图像生成；
+trunc==0.9时，StyleGANv2ADA_MappingNetwork的w_avg参与图像生成，噪声生成的ws占的比重是0.9，w_avg占的比重是0.1；
+trunc==0.0时，StyleGANv2ADA_MappingNetwork的w_avg参与图像生成，噪声生成的ws占的比重是0.0，w_avg占的比重是1.0，即噪声生成的ws不参与图像生成，只用统计的w_avg（ws的平均值）来生成图像；
+其实就是python tools/demo.py A2B那样的插值生成渐变图像，只不过其中1个ws是w_avg
+)
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
 
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_1500 --save_result --device gpu
@@ -204,17 +214,14 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c St
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
 
-(afhq)
+(afhq，你会发现stylegan2ada特有的“屏幕粘毛”视觉观感)
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
 
-python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
+(afhqv2，你会发现stylegan3解决了“屏幕粘毛”的问题)
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
-(metfaces)
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
-
-
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_ffhq.pth --seeds 85,100 --frames 120 --video_fps 30 --save_result --device gpu
 
 
 

@@ -454,7 +454,7 @@ class StyleGANv3Model:
         return loss_numpys
 
     @torch.no_grad()
-    def test_iter(self, metrics=None):
+    def test_iter(self, noise_mode='const', truncation_psi=1.0, metrics=None, return_ws=False):
         z = self.input['z']
         seed = self.input['seed']
         seed = seed.cpu().detach().numpy()[0]
@@ -468,11 +468,15 @@ class StyleGANv3Model:
         else:
             if class_idx is not None:
                 print('warn: --class=lbl ignored when running on an unconditional network')
-        # noise_mode = ['const', 'random', 'none']
-        noise_mode = 'const'
-        truncation_psi = 1.0
 
         ws = self.mapping_ema(z, label, truncation_psi=truncation_psi, truncation_cutoff=None)
+        if return_ws:
+            return ws
+        else:
+            return self.run_synthesis_ema(ws, seed, noise_mode)
+
+    @torch.no_grad()
+    def run_synthesis_ema(self, ws, seed, noise_mode):
         img = self.synthesis_ema(ws, noise_mode=noise_mode)
 
         img = img.permute((0, 2, 3, 1)) * 127.5 + 128
@@ -489,13 +493,11 @@ class StyleGANv3Model:
         return img
 
     @torch.no_grad()
-    def style_mixing(self, row_seeds, col_seeds, all_seeds, col_styles):
+    def style_mixing(self, row_seeds, col_seeds, all_seeds, col_styles, noise_mode='const', truncation_psi=1.0):
         all_z = self.input['z']
-        # noise_mode = ['const', 'random', 'none']
-        noise_mode = 'const'
-        truncation_psi = 1.0
         all_w = self.mapping_ema(all_z, None)
         w_avg = self.mapping_ema.w_avg
+        # 即w_avg和生成的风格向量all_w插值组成最后的风格向量，all_w占的比重是truncation_psi；
         all_w = w_avg + (all_w - w_avg) * truncation_psi
         w_dict = {seed: w for seed, w in zip(all_seeds, list(all_w))}
 

@@ -73,6 +73,18 @@ def make_parser():
         type=int,
         help="A2B video_fps",
     )
+    parser.add_argument(
+        "--noise_mode",
+        default="const",
+        type=str,
+        help="noise_mode, assert noise_mode in ['random', 'const', 'none']",
+    )
+    parser.add_argument(
+        "--trunc",
+        default=1.0,
+        type=float,
+        help="truncation_psi",
+    )
 
     # exp file
     parser.add_argument(
@@ -161,6 +173,8 @@ def main(exp, args):
     if args.demo == "image":
         # 不同的算法输入不同，新增算法时这里也要增加elif
         if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
+            assert args.noise_mode in ['random', 'const', 'none']
+            assert 0.0 <= args.trunc <= 1.0
             # 加载模型权重
             if args.ckpt is None:
                 ckpt_file = os.path.join(file_name, "best_ckpt.pth")
@@ -204,7 +218,7 @@ def main(exp, args):
                 }
                 model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr, seed_i = model.test_iter()
+                    img_bgr, seed_i = model.test_iter(noise_mode=args.noise_mode, truncation_psi=args.trunc)
                     if args.save_result:
                         save_folder = os.path.join(
                             vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
@@ -254,7 +268,7 @@ def main(exp, args):
             }
             model.setup_input(data)
             with torch.no_grad():
-                img_bgr = model.style_mixing(row_seeds, col_seeds, all_seeds, col_styles)
+                img_bgr = model.style_mixing(row_seeds, col_seeds, all_seeds, col_styles, noise_mode=args.noise_mode, truncation_psi=args.trunc)
                 if args.save_result:
                     save_folder = os.path.join(
                         vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
@@ -289,7 +303,7 @@ def main(exp, args):
             seeds = [int(seed) for seed in seeds]
             current_time = time.localtime()
 
-            zs = []
+            ws = []
             for seed in seeds:
                 z = np.random.RandomState(seed).randn(1, model.z_dim)
                 z = torch.from_numpy(z)
@@ -298,22 +312,6 @@ def main(exp, args):
                     z = z.cuda()
                     if args.fp16:
                         z = z.half()  # to FP16
-                zs.append(z)
-
-            total_frames = args.frames * (len(seeds) - 1) + 1
-            save_file_names = []
-            save_folder = None
-            for frame_id in range(total_frames):
-                z_idx = frame_id // args.frames
-                if frame_id < total_frames - 1:
-                    z0 = zs[z_idx]
-                    z1 = zs[z_idx + 1]
-                    # 插值
-                    beta = (frame_id % args.frames) / args.frames
-                    z = z0.lerp(z1, beta)   # z1占的比重是beta, z0占的比重是(1.0 - beta)
-                else:
-                    z = zs[z_idx]
-
                 seed = np.array([0]).astype(np.int32)
                 seed = torch.from_numpy(seed)
                 data = {
@@ -322,7 +320,24 @@ def main(exp, args):
                 }
                 model.setup_input(data)
                 with torch.no_grad():
-                    img_bgr, seed_i = model.test_iter()
+                    w = model.test_iter(noise_mode=args.noise_mode, truncation_psi=args.trunc, return_ws=True)
+                ws.append(w)
+
+            total_frames = args.frames * (len(seeds) - 1) + 1
+            save_file_names = []
+            save_folder = None
+            for frame_id in range(total_frames):
+                w_idx = frame_id // args.frames
+                if frame_id < total_frames - 1:
+                    w0 = ws[w_idx]
+                    w1 = ws[w_idx + 1]
+                    # 插值
+                    beta = (frame_id % args.frames) / args.frames
+                    w = w0.lerp(w1, beta)   # w1占的比重是beta, w0占的比重是(1.0 - beta)
+                else:
+                    w = ws[w_idx]
+                with torch.no_grad():
+                    img_bgr, _ = model.run_synthesis_ema(w, 0, noise_mode=args.noise_mode)
                     if args.save_result:
                         save_folder = os.path.join(
                             vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
