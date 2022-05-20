@@ -182,10 +182,13 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c 
 
 (trunc==1.0时，StyleGANv2ADA_MappingNetwork的w_avg不参与图像生成；
 trunc==0.9时，StyleGANv2ADA_MappingNetwork的w_avg参与图像生成，噪声生成的ws占的比重是0.9，w_avg占的比重是0.1；
-trunc==0.0时，StyleGANv2ADA_MappingNetwork的w_avg参与图像生成，噪声生成的ws占的比重是0.0，w_avg占的比重是1.0，即噪声生成的ws不参与图像生成，只用统计的w_avg（ws的平均值）来生成图像；
+trunc==0.0时，StyleGANv2ADA_MappingNetwork的w_avg参与图像生成，噪声生成的ws占的比重是0.0，w_avg占的比重是1.0，即噪声生成的ws不参与图像生成，只用统计的w_avg（ws的平均值，即w_avg妈妈！！！）来生成图像；
 其实就是python tools/demo.py A2B那样的插值生成渐变图像，只不过其中1个ws是w_avg
 )
+(这句代码召唤w_avg妈妈！！！你知道w_avg妈妈有多好看吗！！！她是整个噪声空间经过MappingNetwork之后得到的ws的平均值，倾国倾城都不能形容她的美貌！)
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
+
+w_avg妈妈！！！
 
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_1500 --save_result --device gpu
@@ -195,6 +198,10 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 0_1500 --save_result --device gpu
+
+(afhqv2)
+python tools/demo.py image -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
 
 
 (metfaces)
@@ -213,9 +220,36 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c St
 
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
+(--A2B_mixing_seed 85 表示这个随机种子生成的ws在每一帧和每一帧的ws进行style_mixing，
+ --col_styles 0,1,2,3,4,5,6表示A2B_mixing_seed生成的ws提供了动作姿态，每一帧的ws提供了皮肤；
+ --col_styles 7,8,9,10,11,12,13表示A2B_mixing_seed生成的ws提供了皮肤，每一帧的ws提供了动作姿态；
+
+ --A2B_mixing_seed w_avg 表示直接用w_avg妈妈进行style_mixing。
+)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 2,3,4,5,6,7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
+
+(w_avg妈妈提供动作姿态！！！神仙颜值，什么发色瞳色都能驾驭！！！)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
+
+(w_avg妈妈提供皮肤！！！)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
+
+(更低的分辨率使用了w_avg妈妈的风格，人物更像w_avg妈妈！！！)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 2,3,4,5,6,7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
+
+
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_20 --frames 120 --video_fps 30 --save_result --device gpu
+
 
 (afhq，你会发现stylegan2ada特有的“屏幕粘毛”视觉观感)
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --seeds 458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
 (afhqv2，你会发现stylegan3解决了“屏幕粘毛”的问题)
 python tools/demo.py A2B -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
@@ -241,6 +275,10 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom
 
 (afhq)
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
+(afhqv2，如果显存不足)
+python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --row_seeds 85 --col_seeds 55 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 (metfaces)

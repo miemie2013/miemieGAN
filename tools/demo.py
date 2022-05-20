@@ -59,7 +59,7 @@ def make_parser():
         "--col_styles",
         default="0,1,2,3,4,5,6",
         type=str,
-        help="col_styles",
+        help="col_styles, for example you can set col_styles to \'0,1,2,3,4,5,6\'",
     )
     parser.add_argument(
         "--frames",
@@ -72,6 +72,12 @@ def make_parser():
         default=30,
         type=int,
         help="A2B video_fps",
+    )
+    parser.add_argument(
+        "--A2B_mixing_seed",
+        default="",
+        type=str,
+        help="A2B mixing_seed",
     )
     parser.add_argument(
         "--noise_mode",
@@ -111,15 +117,23 @@ def make_parser():
     return parser
 
 
-def get_image_list(path):
-    image_names = []
-    for maindir, subdir, file_name_list in os.walk(path):
-        for filename in file_name_list:
-            apath = os.path.join(maindir, filename)
-            ext = os.path.splitext(apath)[1]
-            if ext in IMAGE_EXT:
-                image_names.append(apath)
-    return image_names
+def get_seeds(seeds):
+    if ',' in seeds:
+        seeds = seeds.split(',')
+    elif '_' in seeds:
+        seeds_start_end = seeds.split('_')
+        seeds_start = int(seeds_start_end[0])
+        seeds_end = int(seeds_start_end[1])
+        assert seeds_start < seeds_end
+        seeds = []
+        for ii in range(seeds_start, seeds_end + 1, 1):
+            seeds.append(ii)
+    elif seeds.isdigit():
+        seeds = [int(seeds)]
+    else:
+        raise NotImplementedError("seeds \'{}\' can not be analyzed.".format(seeds))
+    seeds = [int(seed) for seed in seeds]
+    return seeds
 
 
 
@@ -189,17 +203,7 @@ def main(exp, args):
             model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
             logger.info("loaded checkpoint done.")
 
-            seeds = args.seeds
-            if ',' in seeds:
-                seeds = seeds.split(',')
-            elif '_' in seeds:
-                seeds_start_end = seeds.split('_')
-                seeds_start = int(seeds_start_end[0])
-                seeds_end = int(seeds_start_end[1])
-                seeds = []
-                for ii in range(seeds_start, seeds_end + 1, 1):
-                    seeds.append(ii)
-            seeds = [int(seed) for seed in seeds]
+            seeds = get_seeds(args.seeds)
             current_time = time.localtime()
 
             for seed in seeds:
@@ -247,12 +251,9 @@ def main(exp, args):
             model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
             logger.info("loaded checkpoint done.")
 
-            row_seeds = args.row_seeds.split(',')
-            row_seeds = [int(seed) for seed in row_seeds]
-            col_seeds = args.col_seeds.split(',')
-            col_seeds = [int(seed) for seed in col_seeds]
-            col_styles = args.col_styles.split(',')
-            col_styles = [int(seed) for seed in col_styles]
+            row_seeds = get_seeds(args.row_seeds)
+            col_seeds = get_seeds(args.col_seeds)
+            col_styles = get_seeds(args.col_styles)
             all_seeds = list(set(row_seeds + col_seeds))
             current_time = time.localtime()
 
@@ -297,10 +298,36 @@ def main(exp, args):
             model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
             logger.info("loaded checkpoint done.")
 
-            seeds = args.seeds
-            if ',' in seeds:
-                seeds = seeds.split(',')
-            seeds = [int(seed) for seed in seeds]
+            seeds = get_seeds(args.seeds)
+            A2B_mixing_seed = args.A2B_mixing_seed
+            A2B_mixing_w = None
+            col_styles = None
+            if A2B_mixing_seed != "":
+                if A2B_mixing_seed == "w_avg":
+                    # 直接用w_avg妈妈进行渐变的style_mixing
+                    A2B_mixing_w = model.mapping_ema.w_avg
+                    A2B_mixing_w = A2B_mixing_w.unsqueeze(0).unsqueeze(0).repeat([1, model.synthesis_ema.num_ws, 1])
+                else:
+                    A2B_mixing_seed = get_seeds(A2B_mixing_seed)
+                    z = np.random.RandomState(A2B_mixing_seed).randn(1, model.z_dim)
+                    z = torch.from_numpy(z)
+                    z = z.float()
+                    if args.device == "gpu":
+                        z = z.cuda()
+                        if args.fp16:
+                            z = z.half()  # to FP16
+                    seed = np.array([0]).astype(np.int32)
+                    seed = torch.from_numpy(seed)
+                    data = {
+                        'z': z,
+                        'seed': seed,
+                    }
+                    model.setup_input(data)
+                    with torch.no_grad():
+                        w = model.test_iter(noise_mode=args.noise_mode, truncation_psi=args.trunc, return_ws=True)
+                    A2B_mixing_w = w
+                # col_styles和A2B_mixing_seed配合使用，有A2B_mixing_seed时才会使用col_styles
+                col_styles = get_seeds(args.col_styles)
             current_time = time.localtime()
 
             ws = []
@@ -336,6 +363,9 @@ def main(exp, args):
                     w = w0.lerp(w1, beta)   # w1占的比重是beta, w0占的比重是(1.0 - beta)
                 else:
                     w = ws[w_idx]
+                if A2B_mixing_w is not None:
+                    # w = w0.lerp(w1, beta)   # w1占的比重是beta, w0占的比重是(1.0 - beta)
+                    w[0][col_styles] = A2B_mixing_w[0][col_styles]
                 with torch.no_grad():
                     img_bgr, _ = model.run_synthesis_ema(w, 0, noise_mode=args.noise_mode)
                     if args.save_result:
