@@ -238,7 +238,7 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c St
 (w_avg妈妈提供皮肤！！！)
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
 
-(更低的分辨率使用了w_avg妈妈的风格，人物更像w_avg妈妈！！！)
+(更低的分辨率使用了w_avg妈妈的潜在因子，人物更像w_avg妈妈！！！)
 python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 2,3,4,5,6,7,8,9,10,11,12,13 --frames 120 --video_fps 30 --save_result --device gpu
 
 
@@ -258,7 +258,7 @@ python tools/demo.py A2B -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c styleg
 
 
 ----------------------- style_mixing -----------------------
-col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的风格向量的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
+col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的潜在因子的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
 即col_seeds提供了动作姿态，row_seeds提供了皮肤。具体解析请看readme_styleganv2ada_note.txt
 
 

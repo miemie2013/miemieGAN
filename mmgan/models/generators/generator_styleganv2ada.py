@@ -599,6 +599,12 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
                 x = self.w_avg.lerp(x, truncation_psi)
             else:
                 x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
+        # 潜在因子前cuttttttt位替换为w_avg妈妈的值
+        # aaaaaaaaaaa = self.w_avg.lerp(x, 0.0)
+        # cuttttttt = 450
+        # aaa1 = aaaaaaaaaaa[:, :, :cuttttttt]
+        # aaa2 = x[:, :, cuttttttt:]
+        # x = torch.cat([aaa1, aaa2], -1)
         return x
 
 def modulated_conv2d(

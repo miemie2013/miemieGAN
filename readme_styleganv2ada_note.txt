@@ -72,19 +72,19 @@ y00 = (x00 * 1 + x01 * 3 + x10 * 3 + x11 * 9)/16
 phase_real_img = phase_real_img.to(device).to(torch.float32) / 127.5 - 1
 转成-1到1之间的值，交给判别器去判断。总之，判别器接收的输入为-1到1之间的值。
 
-假图片不止只由const和网络权重生成，还依赖风格ws（StyleGANv2ADA_MappingNetwork的输出）一起生成。
+假图片不止只由const和网络权重生成，还依赖潜在因子ws（StyleGANv2ADA_MappingNetwork的输出）一起生成。
 StyleGANv2ADA_MappingNetwork里的ws会经过以下代码：
         if self.num_ws is not None:
             x = x.unsqueeze(1).repeat([1, self.num_ws, 1])
-变成1个三维张量[N, num_ws, 512]，即每一个SynthesisLayer和ToRGBLayer用掉的ws[:, i, :]在数值上是一样的。ws即风格向量，
-在每一种分辨率上使用数值上相等的风格向量生成假图片。
+变成1个三维张量[N, num_ws, 512]，即每一个SynthesisLayer和ToRGBLayer用掉的ws[:, i, :]在数值上是一样的。ws即潜在因子，
+在每一种分辨率上使用数值上相等的潜在因子生成假图片。
 
 
 3.SynthesisLayer 详解
 前向传播：
 def forward(self, x, w, noise_mode='random', fused_modconv=True, gain=1):
     styles = self.affine(w)
-风格向量w经过1个全连接层变成风格向量styles
+潜在因子w经过1个全连接层变成风格向量styles
 
 之后进入modulated_conv2d()
 未完待续...
@@ -122,16 +122,16 @@ StyleGANv2ADA_MappingNetwork的输入是随机噪声z，形状是[N, z_dim]
             else:
                 x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
 首先，z先通过normalize_2nd_moment()进行归一化，得到x，之后，经过num_layers个全连接层，激活函数默认是leaky_relu()；
-之后，如果是训练状态，以EMA的方式更新self.w_avg，self.w_avg是风格向量的平均值！！！，形状是[w_dim, ]，
+之后，如果是训练状态，以EMA的方式更新self.w_avg，self.w_avg是潜在因子的平均值！！！，形状是[w_dim, ]，
 self.w_avg_beta默认是0.995， 即更新时旧的self.w_avg占的比重是0.995，x.detach().mean(dim=0)占的比重是0.005。
-最后，风格向量重复num_ws次。
+最后，潜在因子重复num_ws次。
 
 truncation即截断，这段代码一般预测时用。预测时，如果truncation_cutoff是None，
     x = self.w_avg.lerp(x, truncation_psi)
-即self.w_avg和生成的风格向量x插值组成最后的风格向量，x占的比重是truncation_psi；
+即self.w_avg和生成的潜在因子x插值组成最后的潜在因子，x占的比重是truncation_psi；
 如果truncation_cutoff不是None，
     x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
-即只有前truncation_cutoff个风格向量插值。
+即只有前truncation_cutoff个潜在因子插值。
 
 
 在训练时的run_G()方法中，如果
@@ -142,11 +142,11 @@ truncation即截断，这段代码一般预测时用。预测时，如果truncat
                 temp = self.mapping(torch.randn_like(z), c, skip_w_avg_update=True)[:, cutoff:]
                 temp2 = ws[:, :cutoff]
                 ws = torch.cat([temp2, temp], 1)
-会用另外的噪声torch.randn_like(z)生成另外的风格向量temp，ws的后cutoff个风格向量被替换成了temp，以此训练模型的style_mixing能力。
-怎么理解呢？即生成假图片时，低分辨率用的是z生成的风格向量，高分辨率用的是torch.randn_like(z)生成的风格向量，由此，生成的假图片
+会用另外的噪声torch.randn_like(z)生成另外的潜在因子temp，ws的后cutoff个潜在因子被替换成了temp，以此训练模型的style_mixing能力。
+怎么理解呢？即生成假图片时，低分辨率用的是z生成的潜在因子，高分辨率用的是torch.randn_like(z)生成的潜在因子，由此，生成的假图片
 有了z的动作姿态，却有了torch.randn_like(z)提供的皮肤。
 
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
-在这条命令中，col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的风格向量的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
+在这条命令中，col_styles 0,1,2,3,4,5,6表示的是row_seeds生成的潜在因子的0,1,2,3,4,5,6个被替换成了col_seeds的0,1,2,3,4,5,6个，
 即col_seeds提供了动作姿态，row_seeds提供了皮肤。
