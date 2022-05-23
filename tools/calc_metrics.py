@@ -264,7 +264,7 @@ def main(exp, args):
     if archi_name == 'StyleGANv2ADA':
         model = exp.get_model(device, 0)
     elif archi_name == 'StyleGANv3':
-        model = exp.get_model(batch_size=1)
+        model = exp.get_model(device, 0, batch_size=1)
     else:
         raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
