@@ -190,13 +190,13 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c 
 
 w_avg妈妈！！！
 
-python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
 
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_1500 --save_result --device gpu
 
 (styleganv3)
-python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 0_1500 --save_result --device gpu
+python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 0_1500 --save_result --device gpu
 
 
 (afhq)
@@ -260,22 +260,22 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_256_custom.py -c St
 
 
 (styleganv3)
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
 
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
 
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 2,3,4,5,6,7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed 458 --col_styles 2,3,4,5,6,7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
 
 (w_avg妈妈提供动作姿态！！！神仙颜值，什么发色瞳色都能驾驭！！！)
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 0,1,2,3,4,5,6 --frames 120 --video_fps 30 --save_result --device gpu
 
 (w_avg妈妈提供皮肤！！！)
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
 
 (更低的分辨率使用了w_avg妈妈的潜在因子，人物更像w_avg妈妈！！！)
-python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 2,3,4,5,6,7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
+python tools/demo.py A2B -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --A2B_mixing_seed w_avg --col_styles 2,3,4,5,6,7,8,9,10,11,12,13,14,15 --frames 120 --video_fps 30 --save_result --device gpu
 
 
 
@@ -341,11 +341,11 @@ python tools/demo.py projector -f exps/styleganv2ada/styleganv2ada_1024_metfaces
 
 
 (styleganv3)
-python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --outdir out --target_fname ./target_imgs/xy.jpg --save_result --device gpu
+python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --outdir out --target_fname ./target_imgs/xy.jpg --save_result --device gpu
 
-python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --outdir out --target_fname ./target_imgs/hqsw.jpg --save_result --device gpu
+python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --outdir out --target_fname ./target_imgs/hqsw.jpg --save_result --device gpu
 
-python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth --outdir out --target_fname ./target_imgs/000138-01.jpg --save_result --device gpu
+python tools/demo.py projector -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --outdir out --target_fname ./target_imgs/000138-01.jpg --save_result --device gpu
 
 
 
@@ -469,12 +469,16 @@ python tools/calc_metrics.py -f exps/styleganv2ada/styleganv2ada_256_custom.py -
 
 
 (styleganv3，1机2卡，总批大小8，40.pth)
-python tools/calc_metrics.py -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/40.pth -b 2 -n 50000 --inceptionv3_path inception-2015-12-05.pth --device gpu
+python tools/calc_metrics.py -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth -b 2 -n 50000 --inceptionv3_path inception-2015-12-05.pth --device gpu
 
 2022-05-23 15:47:35.642 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 4849.241369s
 2022-05-23 15:47:35.643 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.096985s per image,  10.3 FPS.
 2022-05-23 15:47:39.536 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 10.792626
 
+1机2卡，总批大小8，77.pth，
+2022-05-27 13:59:12.171 | INFO     | __main__:calc_stylegan2ada_metric:230 - total time: 5360.057720s
+2022-05-27 13:59:12.172 | INFO     | __main__:calc_stylegan2ada_metric:231 - Speed: 0.107201s per image,  9.3 FPS.
+2022-05-27 13:59:16.578 | INFO     | __main__:calc_stylegan2ada_metric:239 - FID: 8.085018
 
 
 
