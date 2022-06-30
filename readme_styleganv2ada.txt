@@ -192,11 +192,16 @@ w_avg妈妈！！！
 
 python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
 
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -c StyleGANv2ADA_outputs/styleganv2ada_256_uppercloth/123.pth --seeds 85,100,75,458,1500 --noise_mode const --trunc 0.0 --save_result --device gpu
+
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --seeds 0_1500 --save_result --device gpu
 
 (styleganv3)
 python tools/demo.py image -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 0_1500 --save_result --device gpu
+
+(styleganv2ada, uppercloth)
+python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_256_uppercloth.py -c StyleGANv2ADA_outputs/styleganv2ada_256_uppercloth/123.pth --seeds 0_1500 --save_result --device gpu
 
 
 (afhq)
