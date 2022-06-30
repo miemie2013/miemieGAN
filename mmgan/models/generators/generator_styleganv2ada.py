@@ -10,6 +10,7 @@ import math
 import scipy
 import scipy.signal
 import warnings
+import mmgan.models.ncnn_utils as ncnn_utils
 
 
 class suppress_tracer_warnings(warnings.catch_warnings):
@@ -187,6 +188,55 @@ def bias_act(x, b=None, dim=1, act='linear', alpha=None, gain=None, clamp=None):
         x = x.clamp(-clamp, clamp)
     return x
 
+
+def bias_act2ncnn(ncnn_data, bottom_names, dim=1, act='linear', alpha=None, gain=None, clamp=None):
+    assert clamp is None or clamp >= 0
+    def_gain = 1.0
+    if act in ['relu', 'lrelu', 'swish']:  # 除了这些激活函数的def_gain = np.sqrt(2)，其余激活函数的def_gain = 1.0
+        def_gain = np.sqrt(2)
+    def_alpha = 0.0
+    if act in ['lrelu']:  # 除了这些激活函数的def_alpha = 0.2，其余激活函数的def_alpha = 0.0
+        def_alpha = 0.2
+
+    alpha = float(alpha if alpha is not None else def_alpha)
+    gain = float(gain if gain is not None else def_gain)
+    clamp = float(clamp if clamp is not None else -1)
+
+    # 加上偏移
+
+    # 经过激活函数
+    alpha = float(alpha)  # 只有leaky_relu需要
+    act_type = 0
+    if act == 'linear':
+        act_type = 0
+    elif act == 'relu':
+        act_type = 1
+    elif act == 'lrelu':
+        act_type = 2
+    elif act == 'tanh':
+        act_type = 3
+    elif act == 'sigmoid':
+        act_type = 4
+    elif act == 'elu':
+        act_type = 5
+    elif act == 'selu':
+        act_type = 6
+    elif act == 'softplus':
+        act_type = 7
+    elif act == 'swish':
+        act_type = 8
+    else:
+        raise NotImplementedError("activation \'{}\' is not implemented.".format(act))
+
+
+    # 乘以缩放因子
+    gain = float(gain)
+
+    # 限制范围
+    bottom_names = ncnn_utils.BiasAct(ncnn_data, bottom_names, act_type, alpha, gain, clamp)
+    return bottom_names
+
+
 def _parse_padding(padding):
     if isinstance(padding, int):
         padding = [padding, padding]
@@ -227,6 +277,29 @@ def _conv2d_wrapper(x, w, stride=1, padding=0, groups=1, transpose=False, flip_w
         return F.conv_transpose2d(x, weight=w, bias=None, stride=stride, padding=padding, output_padding=0, groups=groups, dilation=1)
     else:
         return F.conv2d(x, weight=w, bias=None, stride=stride, padding=padding, dilation=1, groups=groups)
+
+
+def _conv2d_wrapper2ncnn(ncnn_data, bottom_names, weight_shape, stride=1, padding=0, groups=1, transpose=False, flip_weight=True):
+    x, w = bottom_names
+    out_channels, in_channels_per_group, kh, kw = weight_shape
+
+    # Flip weight if requested.
+    if not flip_weight: # conv2d() actually performs correlation (flip_weight=True) not convolution (flip_weight=False).
+        raise NotImplementedError("not implemented.")
+        # w = w.flip([2, 3])
+
+    # Otherwise => execute using conv2d_gradfix.
+    if transpose:
+        # ncnn的Deconvolution层的权重weight，out_C和in_C维要交换一下，才能和pytorch的weight对应。
+        w = ncnn_utils.really_permute(ncnn_data, w, perm=(1, 0, 2, 3))
+        w = w[0]
+        weight_shape = (in_channels_per_group, out_channels, kh, kw)
+        bottom_names = ncnn_utils.Fconv_transpose2d(ncnn_data, [x, w], weight_shape, stride=stride, padding=padding, dilation=1, groups=groups)
+        return bottom_names
+    else:
+        bottom_names = ncnn_utils.Fconv2d(ncnn_data, [x, w], stride=stride, padding=padding, dilation=1, groups=groups)
+        return bottom_names
+
 
 def _parse_scaling(scaling):
     # scaling 一变二
@@ -277,6 +350,68 @@ def upfirdn2d(x, f, up=1, down=1, padding=0, flip_filter=False, gain=1):
 
     # Downsample by throwing away pixels.
     x = x[:, :, ::downy, ::downx]
+    return x
+
+
+def upfirdn2d2ncnn(ncnn_data, bottom_names, f, out_C, up=1, down=1, padding=0, flip_filter=False, gain=1):
+    x = bottom_names
+    num_channels = out_C
+    if f is None:
+        f = torch.ones([1, 1], dtype=torch.float32, device=x.device)
+
+    # batch_size, num_channels, in_height, in_width = x.shape
+    upx, upy = _parse_scaling(up)
+    downx, downy = _parse_scaling(down)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+
+    assert upx == upy
+    assert upx in [1, 2]
+
+    # Upsample by inserting zeros.
+    if upx == 1:
+        pass
+    elif upx == 2:
+        x = ncnn_utils.up2(ncnn_data, x)
+
+    # Pad or crop.
+    # x = torch.nn.functional.pad(x, [max(padx0, 0), max(padx1, 0), max(pady0, 0), max(pady1, 0)])
+    # x = x[:, :, max(-pady0, 0) : x.shape[2] - max(-pady1, 0), max(-padx0, 0) : x.shape[3] - max(-padx1, 0)]
+    if padx0 == 0 and padx1 == 0 and pady0 == 0 and pady1 == 0:
+        pass
+    elif padx0 > 0 and padx1 > 0 and pady0 > 0 and pady1 > 0:
+        x = ncnn_utils.pad(ncnn_data, x, top=pady0, bottom=pady1, left=padx0, right=padx1)
+    elif padx0 < 0 and padx1 < 0 and pady0 < 0 and pady1 < 0:
+        padx0 = -padx0
+        padx1 = -padx1
+        pady0 = -pady0
+        pady1 = -pady1
+        x = ncnn_utils.crop(ncnn_data, x, starts='2,%d,%d'%(pady0, padx0), ends='2,%d,%d'%(-pady1, -padx1), axes='2,1,2')
+    else:
+        raise NotImplementedError("not implemented.")
+
+    # Setup filter.
+    f = f * (gain ** (f.ndim / 2))
+    f = f.to(torch.float32)
+    if not flip_filter:
+        f = f.flip(list(range(f.ndim)))
+
+    # Convolve with the filter.
+    f = f[np.newaxis, np.newaxis].repeat([num_channels, 1] + [1] * f.ndim)
+    if f.ndim == 4:
+        resample_filter_names = ncnn_utils.shell(ncnn_data, x, f, None)
+        x = ncnn_utils.Fconv2d_depthwise(ncnn_data, [x[0], resample_filter_names[0]], groups=num_channels)
+    else:
+        # x = F.conv2d(x, weight=f.unsqueeze(2), groups=num_channels)
+        # x = F.conv2d(x, weight=f.unsqueeze(3), groups=num_channels)
+        raise NotImplementedError("not implemented.")
+
+    # Downsample by throwing away pixels.
+    assert downy == downx
+    assert downx in [1, 2]
+    if downx == 1:
+        pass
+    elif downx == 2:
+        x = ncnn_utils.down2(ncnn_data, x)
     return x
 
 
@@ -384,6 +519,85 @@ def conv2d_resample(x, w, filter=None, up=1, down=1, padding=0, groups=1, flip_w
     return x
 
 
+def conv2d_resample2ncnn(ncnn_data, bottom_names, weight_shape, filter_tensor=None, up=1, down=1, padding=0, groups=1, flip_weight=True, flip_filter=False):
+    x, w = bottom_names
+    out_channels, in_channels_per_group, kh, kw = weight_shape
+    fw, fh = _get_filter_size(filter_tensor)
+    # 图片4条边上的padding
+    px0, px1, py0, py1 = _parse_padding(padding)
+
+    # Adjust padding to account for up/downsampling.
+    if up > 1:
+        px0 += (fw + up - 1) // 2
+        px1 += (fw - up) // 2
+        py0 += (fh + up - 1) // 2
+        py1 += (fh - up) // 2
+    if down > 1:
+        px0 += (fw - down + 1) // 2
+        px1 += (fw - down) // 2
+        py0 += (fh - down + 1) // 2
+        py1 += (fh - down) // 2
+
+    # Fast path: 1x1 convolution with downsampling only => downsample first, then convolve.
+    if kw == 1 and kh == 1 and (down > 1 and up == 1):
+        raise NotImplementedError("not implemented.")
+        # x = upfirdn2d(x, filter, down=down, padding=[px0, px1, py0, py1], flip_filter=flip_filter)
+        # x = _conv2d_wrapper(x=x, w=w, groups=groups, flip_weight=flip_weight)
+        # return x
+
+    # Fast path: 1x1 convolution with upsampling only => convolve first, then upsample.
+    if kw == 1 and kh == 1 and (up > 1 and down == 1):
+        raise NotImplementedError("not implemented.")
+        # x = _conv2d_wrapper(x=x, w=w, groups=groups, flip_weight=flip_weight)
+        # x = upfirdn2d(x, filter, up=up, padding=[px0, px1, py0, py1], gain=up ** 2, flip_filter=flip_filter)
+        # return x
+
+    # Fast path: downsampling only => use strided convolution.
+    if down > 1 and up == 1:
+        raise NotImplementedError("not implemented.")
+        # x = upfirdn2d(x, filter, padding=[px0, px1, py0, py1], flip_filter=flip_filter)
+        # x = _conv2d_wrapper(x=x, w=w, stride=down, groups=groups, flip_weight=flip_weight)
+        # return x
+
+    # Fast path: upsampling with optional downsampling => use transpose strided convolution.
+    if up > 1:
+        out_C = out_channels
+        if groups == 1:
+            # w = w.permute((1, 0, 2, 3))
+            w = ncnn_utils.really_permute(ncnn_data, w, perm=(1, 0, 2, 3))
+            w = w[0]
+            weight_shape = (in_channels_per_group, out_channels, kh, kw)
+        else:
+            # w = w.reshape((groups, out_channels // groups, in_channels_per_group, kh, kw))
+            # w = w.permute((0, 2, 1, 3, 4))
+            # w = w.reshape((groups * in_channels_per_group, out_channels // groups, kh, kw))
+            raise NotImplementedError("not implemented.")
+        px0 -= kw - 1
+        px1 -= kw - up
+        py0 -= kh - 1
+        py1 -= kh - up
+        pxt = max(min(-px0, -px1), 0)
+        pyt = max(min(-py0, -py1), 0)
+        x = _conv2d_wrapper2ncnn(ncnn_data, [x, w], weight_shape, stride=up, padding=[pyt,pxt], groups=groups, transpose=True, flip_weight=(not flip_weight))
+        x = upfirdn2d2ncnn(ncnn_data, x, filter_tensor, out_C, padding=[px0 + pxt, px1 + pxt, py0 + pyt, py1 + pyt], gain=up ** 2, flip_filter=flip_filter)
+        if down > 1:
+            x = upfirdn2d2ncnn(ncnn_data, x, filter_tensor, out_C, down=down, flip_filter=flip_filter)
+        return x
+
+    # Fast path: no up/downsampling, padding supported by the underlying implementation => use plain conv2d.
+    if up == 1 and down == 1:
+        if px0 == px1 and py0 == py1 and px0 >= 0 and py0 >= 0:
+            return _conv2d_wrapper2ncnn(ncnn_data, [x, w], weight_shape, padding=[py0,px0], groups=groups, flip_weight=flip_weight)
+
+    # Fallback: Generic reference implementation.
+    raise NotImplementedError("not implemented.")
+    # x = upfirdn2d(x, (filter if up > 1 else None), up=up, padding=[px0, px1, py0, py1], gain=up ** 2, flip_filter=flip_filter)
+    # x = _conv2d_wrapper(x=x, w=w, groups=groups, flip_weight=flip_weight)
+    # if down > 1:
+    #     x = upfirdn2d(x, filter, down=down, flip_filter=flip_filter)
+    return x
+
+
 def upsample2d(x, f, up=2, padding=0, flip_filter=False, gain=1):
     r"""Upsample a batch of 2D images using the given 2D FIR filter.
 
@@ -419,6 +633,19 @@ def upsample2d(x, f, up=2, padding=0, flip_filter=False, gain=1):
         pady1 + (fh - upy) // 2,
     ]
     return upfirdn2d(x, f, up=up, padding=p, flip_filter=flip_filter, gain=gain*upx*upy)
+
+
+def upsample2d2ncnn(ncnn_data, bottom_names, f, out_C, up=2, padding=0, flip_filter=False, gain=1):
+    upx, upy = _parse_scaling(up)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+    fw, fh = _get_filter_size(f)
+    p = [
+        padx0 + (fw + upx - 1) // 2,
+        padx1 + (fw - upx) // 2,
+        pady0 + (fh + upy - 1) // 2,
+        pady1 + (fh - upy) // 2,
+    ]
+    return upfirdn2d2ncnn(ncnn_data, bottom_names, f, out_C, up=up, padding=p, flip_filter=flip_filter, gain=gain*upx*upy)
 
 
 class Conv2dLayer(nn.Module):
@@ -521,9 +748,46 @@ class FullyConnectedLayer(nn.Module):
             x = bias_act(x, b, act=self.activation)
         return x
 
+    def export_ncnn(self, ncnn_data, bottom_names):
+        x_dtype = torch.float32
+        w = self.weight.to(x_dtype) * self.weight_gain
+        b = self.bias
+        if b is not None:
+            b = b.to(x_dtype)
+            if self.bias_gain != 1:
+                b = b * self.bias_gain
+
+        w_b = ncnn_utils.shell(ncnn_data, bottom_names, w.unsqueeze(2).unsqueeze(3), b)
+
+        if self.activation == 'linear' and b is not None:
+            w_name = w_b[0]
+            b_name = w_b[1]
+            # 传入Fmatmul层的w的形状是[out_C, in_C, 1, 1] 所以不要使用
+            # wt_names = ncnn_utils.really_permute(ncnn_data, w_name, perm=(1, 0, 2, 3))  # [CD11] -> [DC11]   这句代码
+            bottom_names = ncnn_utils.Fmatmul(ncnn_data, [bottom_names[0], w_name, b_name], w.shape)
+        else:
+            w_name = w_b[0]
+            b_name = w_b[1]
+            # 传入Fmatmul层的w的形状是[out_C, in_C, 1, 1] 所以不要使用
+            # wt_names = ncnn_utils.really_permute(ncnn_data, w_name, perm=(1, 0, 2, 3))  # [CD11] -> [DC11]   这句代码
+            bottom_names = ncnn_utils.Fmatmul(ncnn_data, [bottom_names[0], w_name], w.shape)
+            bottom_names = bias_act2ncnn(ncnn_data, [bottom_names[0], b_name], act=self.activation)
+        return bottom_names
+
 
 def normalize_2nd_moment(x, dim=1, eps=1e-8):
     return x * (x.square().mean(dim=dim, keepdim=True) + eps).rsqrt()
+
+
+def normalize_2nd_moment2ncnn(ncnn_data, x, dim=1, eps=1e-8):
+    temp = ncnn_utils.square(ncnn_data, x)
+    temp = ncnn_utils.reduction(ncnn_data, temp, op='ReduceMean', input_dims=2, dims=(dim, ), keepdim=True)
+    temp = ncnn_utils.rsqrt(ncnn_data, temp, eps=eps)
+
+    # 最后是逐元素相乘
+    bottom_names = [x[0], temp[0]]
+    bottom_names = ncnn_utils.binaryOp(ncnn_data, bottom_names, op='Mul')
+    return bottom_names
 
 
 class StyleGANv2ADA_MappingNetwork(nn.Module):
@@ -607,6 +871,19 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
         # x = torch.cat([aaa1, aaa2], -1)
         return x
 
+    def export_ncnn(self, ncnn_data, bottom_names, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
+        x = None
+        if self.z_dim > 0:
+            x = normalize_2nd_moment2ncnn(ncnn_data, bottom_names)
+        if self.c_dim > 0:
+            raise NotImplementedError("not implemented.")
+
+        # Main layers.
+        for idx in range(self.num_layers):
+            layer = getattr(self, f'fc{idx}')
+            x = layer.export_ncnn(ncnn_data, x)
+        return x
+
 def modulated_conv2d(
     x,                          # Input tensor of shape [batch_size, in_channels, in_height, in_width].
     weight,                     # Weight tensor of shape [out_channels, in_channels, kernel_height, kernel_width].
@@ -666,6 +943,68 @@ def modulated_conv2d(
     return x
 
 
+def modulated_conv2d2ncnn(
+    ncnn_data,
+    bottom_names,
+    up              = 1,        # Integer upsampling factor.
+    down            = 1,        # Integer downsampling factor.
+    padding         = 0,        # Padding with respect to the upsampled image.
+    resample_filter_tensor = None,
+    demodulate      = True,     # Apply weight demodulation?
+    flip_weight     = True,     # False = convolution, True = correlation (matches torch.nn.functional.conv2d).
+    fused_modconv   = True,     # Perform modulation, convolution, and demodulation as a single fused operation?
+    weight_shape    = None,
+):
+    noise = None
+    if len(bottom_names) == 4:
+        x, weight, styles, noise = bottom_names
+    elif len(bottom_names) == 3:
+        x, weight, styles = bottom_names
+    batch_size = 1
+    out_channels, in_channels, kh, kw = weight_shape
+
+    # Pre-normalize inputs to avoid FP16 overflow.
+    # if x.dtype == torch.float16 and demodulate:
+    #     weight = weight * (1 / np.sqrt(in_channels * kh * kw) / weight.norm(float('inf'), dim=[1,2,3], keepdim=True)) # max_Ikk
+    #     styles = styles / styles.norm(float('inf'), dim=1, keepdim=True) # max_I
+
+    # Calculate per-sample weights and demodulation coefficients.
+    w = None
+    dcoefs = None
+    if demodulate or fused_modconv:
+        w = ncnn_utils.F4DMul1D(ncnn_data, [weight, styles], dim=1)  # [OIkk]
+    if demodulate:
+        dcoefs = ncnn_utils.square(ncnn_data, w)
+        # 不要使用ReduceSum，会超出半精度浮点数的最大表示范围65504.0，造成计算结果不准确。在rsqrt里指定scale来实现ReduceSum的效果。
+        dcoefs = ncnn_utils.really_reduction(ncnn_data, dcoefs, op='ReduceMean', dims=(1, 2, 3), keepdim=True)
+        scale = float(in_channels * kh * kw)
+        dcoefs = ncnn_utils.rsqrt(ncnn_data, dcoefs, eps=1e-8, scale=scale)
+    if demodulate and fused_modconv:
+        # F4DMul1D()要求那个1D张量在ncnn中的形状是111W (CDHW)
+        dcoefs = ncnn_utils.really_reshape(ncnn_data, dcoefs, shape=(1, 1, 1, -1))
+        w = ncnn_utils.F4DMul1D(ncnn_data, [w[0], dcoefs[0]], dim=0)  # [OIkk]
+
+    # Execute by scaling the activations before and after the convolution.
+    if not fused_modconv:
+        raise NotImplementedError("not implemented.")
+        # x = x * styles.to(x.dtype).reshape((batch_size, -1, 1, 1))
+        # x = conv2d_resample(x=x, w=weight.to(x.dtype), filter=resample_filter, up=up, down=down, padding=padding, flip_weight=flip_weight)
+        # if demodulate and noise is not None:
+        #     x = fma(x, dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1)), noise.to(x.dtype))
+        # elif demodulate:
+        #     x = x * dcoefs.to(x.dtype).reshape((batch_size, -1, 1, 1))
+        # elif noise is not None:
+        #     x = x.add_(noise.to(x.dtype))
+        # return x
+
+    # Execute as one fused op using grouped convolution.
+    batch_size = 1
+    x = conv2d_resample2ncnn(ncnn_data, [x, w[0]], weight_shape, filter_tensor=resample_filter_tensor, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
+    if noise is not None:
+        x = ncnn_utils.AddNoise(ncnn_data, [x[0], noise])
+    return x
+
+
 class SynthesisLayer(nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
@@ -722,6 +1061,23 @@ class SynthesisLayer(nn.Module):
         x = bias_act(x, self.bias.to(x.dtype), act=self.activation, gain=act_gain, clamp=act_clamp)
         return x
 
+    def export_ncnn(self, ncnn_data, bottom_names, noise_mode='random', fused_modconv=True, gain=1):
+        x, w = bottom_names
+
+        styles = self.affine.export_ncnn(ncnn_data, [w, ])
+        noise = self.noise_const * self.noise_strength
+        noise_names = ncnn_utils.shell(ncnn_data, w, noise.unsqueeze(0).unsqueeze(0), None)  # [11HW] 形状(ncnn)
+        w_b = ncnn_utils.shell(ncnn_data, w, self.weight, self.bias)
+
+        flip_weight = (self.up == 1)  # slightly faster
+        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0], noise_names[0]], up=self.up,
+            padding=self.padding, resample_filter_tensor=self.resample_filter, flip_weight=flip_weight, fused_modconv=fused_modconv, weight_shape=self.weight.shape)
+
+        act_gain = self.act_gain * gain
+        act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
+        x = bias_act2ncnn(ncnn_data, [x[0], w_b[1]], act=self.activation, gain=act_gain, clamp=act_clamp)
+        return x
+
 
 class ToRGBLayer(nn.Module):
     def __init__(self, in_channels, out_channels, w_dim, kernel_size=1, conv_clamp=None, channels_last=False):
@@ -740,6 +1096,16 @@ class ToRGBLayer(nn.Module):
         styles = self.affine(w) * self.weight_gain
         x = modulated_conv2d(x=x, weight=self.weight, styles=styles, demodulate=False, fused_modconv=fused_modconv)
         x = bias_act(x, self.bias.to(x.dtype), clamp=self.conv_clamp)
+        return x
+
+    def export_ncnn(self, ncnn_data, bottom_names, noise_mode='random', fused_modconv=True, gain=1):
+        x, w = bottom_names
+        styles = self.affine.export_ncnn(ncnn_data, [w, ])
+        styles = ncnn_utils.MulConstant(ncnn_data, styles, scale=self.weight_gain)
+
+        w_b = ncnn_utils.shell(ncnn_data, w, self.weight, self.bias)
+        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0]], demodulate=False, fused_modconv=fused_modconv, weight_shape=self.weight.shape)
+        x = bias_act2ncnn(ncnn_data, [x[0], w_b[1]], clamp=self.conv_clamp)
         return x
 
 
@@ -832,6 +1198,45 @@ class SynthesisBlock(nn.Module):
         assert img is None or img.dtype == torch.float32
         return x, img
 
+    def export_ncnn(self, ncnn_data, bottom_names, force_fp32=False, fused_modconv=None, **layer_kwargs):
+        dtype = torch.float32
+        memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
+        fused_modconv = True
+
+        # Input.
+        img = None
+        if self.in_channels == 0:
+            ws = bottom_names[0]
+            x = self.const.to(dtype=dtype, memory_format=memory_format)
+            # 注意，这个ncnn_weight_dims=3不能省，否则的话在ncnn中const的dims会是4，参与卷积运算会计算出错误结果！
+            # 把const的dims变成是3，参与卷积运算计算出正确结果！
+            const_name = ncnn_utils.shell(ncnn_data, bottom_names, x.unsqueeze(1), None, ncnn_weight_dims=3)  # [C1HW] 形状(ncnn)  dims=3
+            x = const_name[0]
+        else:
+            x, img, ws = bottom_names
+
+        # Main layers.
+        if self.in_channels == 0:
+            x = self.conv1.export_ncnn(ncnn_data, [x, ws], fused_modconv=fused_modconv, **layer_kwargs)
+        elif self.architecture == 'resnet':
+            raise NotImplementedError("not implemented.")
+        else:
+            x = self.conv0.export_ncnn(ncnn_data, [x, ws], fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1.export_ncnn(ncnn_data, [x[0], ws], fused_modconv=fused_modconv, **layer_kwargs)
+
+        # ToRGB.
+        if img is not None:
+            # img = upsample2d(img, self.resample_filter)
+            img = upsample2d2ncnn(ncnn_data, [img, ], self.resample_filter, self.img_channels)
+            img = img[0]
+        if self.is_last or self.architecture == 'skip':
+            y = self.torgb.export_ncnn(ncnn_data, [x[0], ws], fused_modconv=fused_modconv)
+            if img is not None:
+                img = ncnn_utils.binaryOp(ncnn_data, [img, y[0]], op='Add')
+            else:
+                img = y
+        return x[0], img[0]
+
 
 
 class StyleGANv2ADA_SynthesisNetwork(nn.Module):
@@ -881,6 +1286,18 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
         for res, cur_ws in zip(self.block_resolutions, block_ws):
             block = getattr(self, f'b{res}')
             x, img = block(x, img, cur_ws, **block_kwargs)
+        return img
+
+    def export_ncnn(self, ncnn_data, bottom_names, **block_kwargs):
+        ws = bottom_names[0]
+        x = img = None
+        for res in self.block_resolutions:
+            block = getattr(self, f'b{res}')
+            if res == 4:
+                x, img = block.export_ncnn(ncnn_data, [ws, ], **block_kwargs)
+            else:
+                x, img = block.export_ncnn(ncnn_data, [x, img, ws], **block_kwargs)
+        img = ncnn_utils.StyleganPost(ncnn_data, img)
         return img
 
 

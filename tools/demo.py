@@ -25,6 +25,7 @@ sys.path.insert(0, parent_path)
 from mmgan.data.data_augment import *
 from mmgan.exp import get_exp
 from mmgan.utils import fuse_model, get_model_info, postprocess, vis, get_classes, vis2, load_ckpt
+import mmgan.models.ncnn_utils as ncnn_utils
 
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
@@ -32,7 +33,7 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 def make_parser():
     parser = argparse.ArgumentParser("MieMieGAN Demo!")
     parser.add_argument(
-        "demo", default="image", help="demo type, eg. image, style_mixing, A2B, projector"
+        "demo", default="image", help="demo type, eg. image, style_mixing, A2B, projector, ncnn"
     )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
 
@@ -141,6 +142,9 @@ def make_parser():
         default=False,
         action="store_true",
         help="Adopting mix precision evaluating.",
+    )
+    parser.add_argument(
+        "--ncnn_output_path", default="", help="path to save ncnn model."
     )
     return parser
 
@@ -748,6 +752,112 @@ def main(exp, args):
             logger.info("Saving projected_w result in {}".format(f'{outdir}/projected_w.npz'))
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
+    elif args.demo == "ncnn":   # 导出ncnn
+        # 不同的算法输入不同，新增算法时这里也要增加elif
+        if archi_name == 'StyleGANv2ADA' or archi_name == 'StyleGANv3':
+            # 加载模型权重
+            if args.ckpt is None:
+                ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+            else:
+                ckpt_file = args.ckpt
+            logger.info("loading checkpoint")
+            ckpt = torch.load(ckpt_file, map_location="cpu")
+            model.synthesis = load_ckpt(model.synthesis, ckpt["synthesis"])
+            model.synthesis_ema = load_ckpt(model.synthesis_ema, ckpt["synthesis_ema"])
+            model.mapping = load_ckpt(model.mapping, ckpt["mapping"])
+            model.mapping_ema = load_ckpt(model.mapping_ema, ckpt["mapping_ema"])
+            model.discriminator = load_ckpt(model.discriminator, ckpt["discriminator"])
+            logger.info("loaded checkpoint done.")
+
+            # seeds = get_seeds(args.seeds)
+            # A2B_mixing_seed = args.A2B_mixing_seed
+            # A2B_mixing_w = None
+            # projector_random_seed = args.projector_random_seed
+            # np.random.seed(projector_random_seed)
+            # torch.manual_seed(projector_random_seed)
+
+            mapping_name = '%s_mapping' % args.ncnn_output_path
+            synthesis_name = '%s_synthesis' % args.ncnn_output_path
+
+            # -------------------- mapping_ema --------------------
+            bp = open('%s.bin' % mapping_name, 'wb')
+            pp = ''
+            layer_id = 0
+            tensor_id = 0
+            pp += 'Input\tlayer_%.8d\t0 1 tensor_%.8d\n' % (layer_id, tensor_id)
+            layer_id += 1
+            tensor_id += 1
+
+            ncnn_data = {}
+            ncnn_data['bp'] = bp
+            ncnn_data['pp'] = pp
+            ncnn_data['layer_id'] = layer_id
+            ncnn_data['tensor_id'] = tensor_id
+            bottom_names = ncnn_utils.newest_bottom_names(ncnn_data)
+            bottom_names = model.mapping_ema.export_ncnn(ncnn_data, bottom_names)
+
+            # 如果1个张量作为了n(n>1)个层的输入张量，应该用Split层将它复制n份，每1层用掉1个。
+            bottom_names = ncnn_utils.split_input_tensor(ncnn_data, bottom_names)
+            pp = ncnn_data['pp']
+            layer_id = ncnn_data['layer_id']
+            tensor_id = ncnn_data['tensor_id']
+            pp = pp.replace('tensor_%.8d' % (0,), 'images')
+            pp = pp.replace(bottom_names[-1], 'output')
+            pp = '7767517\n%d %d\n' % (layer_id, tensor_id) + pp
+            with open('%s.param' % mapping_name, 'w', encoding='utf-8') as f:
+                f.write(pp)
+                f.close()
+
+            # -------------------- synthesis_ema --------------------
+            bp = open('%s.bin' % synthesis_name, 'wb')
+            pp = ''
+            layer_id = 0
+            tensor_id = 0
+            pp += 'Input\tlayer_%.8d\t0 1 tensor_%.8d\n' % (layer_id, tensor_id)
+            layer_id += 1
+            tensor_id += 1
+
+            ncnn_data = {}
+            ncnn_data['bp'] = bp
+            ncnn_data['pp'] = pp
+            ncnn_data['layer_id'] = layer_id
+            ncnn_data['tensor_id'] = tensor_id
+            bottom_names = ncnn_utils.newest_bottom_names(ncnn_data)
+            bottom_names = model.synthesis_ema.export_ncnn(ncnn_data, bottom_names)
+
+            # 如果1个张量作为了n(n>1)个层的输入张量，应该用Split层将它复制n份，每1层用掉1个。
+            bottom_names = ncnn_utils.split_input_tensor(ncnn_data, bottom_names)
+            pp = ncnn_data['pp']
+            layer_id = ncnn_data['layer_id']
+            tensor_id = ncnn_data['tensor_id']
+            pp = pp.replace('tensor_%.8d' % (0,), 'images')
+            pp = pp.replace(bottom_names[-1], 'output')
+            pp = '7767517\n%d %d\n' % (layer_id, tensor_id) + pp
+            with open('%s.param' % synthesis_name, 'w', encoding='utf-8') as f:
+                f.write(pp)
+                f.close()
+            logger.info("Saving ncnn param file in %s.param" % mapping_name)
+            logger.info("Saving ncnn bin file in %s.bin" % mapping_name)
+            logger.info("Saving ncnn param file in %s.param" % synthesis_name)
+            logger.info("Saving ncnn bin file in %s.bin" % synthesis_name)
+
+
+            # -------------------- save seeds --------------------
+            seed = 75
+            z_dim = model.mapping_ema.z_dim
+            z = np.random.RandomState(seed).randn(1, z_dim)
+
+            import struct
+            seeds_file_name = 'seed_75.bin'
+            seed_bin = open(seeds_file_name, 'wb')
+            s = struct.pack('i', 0)
+            seed_bin.write(s)
+            for i1 in range(z_dim):
+                s = struct.pack('f', z[0][i1])
+                seed_bin.write(s)
+            logger.info("Saving seeds file in %s" % seeds_file_name)
+        else:
+            raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 
 
 if __name__ == "__main__":
@@ -758,6 +868,7 @@ if __name__ == "__main__":
         print('Debug Mode.')
         args.exp_file = '../' + args.exp_file
         args.ckpt = '../' + args.ckpt   # 如果是绝对路径，把这一行注释掉
+        args.ncnn_output_path = '../' + args.ncnn_output_path   # 如果是绝对路径，把这一行注释掉
     exp = get_exp(args.exp_file)
 
     main(exp, args)

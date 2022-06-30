@@ -231,3 +231,6 @@ log*.txt
 *ocr_result/
 
 
+*.param
+*.bin
+
