@@ -10,6 +10,7 @@ import numpy as np
 from loguru import logger
 
 import cv2
+import struct
 import copy
 import imageio
 import PIL.Image
@@ -843,18 +844,17 @@ def main(exp, args):
 
 
             # -------------------- save seeds --------------------
-            seed = 75
+            seeds = get_seeds(args.seeds)
             z_dim = model.mapping_ema.z_dim
-            z = np.random.RandomState(seed).randn(1, z_dim)
-
-            import struct
             seeds_file_name = 'seed_75.bin'
             seed_bin = open(seeds_file_name, 'wb')
             s = struct.pack('i', 0)
             seed_bin.write(s)
-            for i1 in range(z_dim):
-                s = struct.pack('f', z[0][i1])
-                seed_bin.write(s)
+            for seed in seeds:
+                z = np.random.RandomState(seed).randn(1, z_dim)
+                for i1 in range(z_dim):
+                    s = struct.pack('f', z[0][i1])
+                    seed_bin.write(s)
             logger.info("Saving seeds file in %s" % seeds_file_name)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
