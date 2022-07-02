@@ -785,16 +785,16 @@ def main(exp, args):
             pp = ''
             layer_id = 0
             tensor_id = 0
-            pp += 'Input\tlayer_%.8d\t0 1 tensor_%.8d\n' % (layer_id, tensor_id)
+            pp += 'Input\tlayer_%.8d\t0 2 tensor_%.8d tensor_%.8d\n' % (layer_id, tensor_id, tensor_id + 1)
             layer_id += 1
-            tensor_id += 1
+            tensor_id += 2
 
             ncnn_data = {}
             ncnn_data['bp'] = bp
             ncnn_data['pp'] = pp
             ncnn_data['layer_id'] = layer_id
             ncnn_data['tensor_id'] = tensor_id
-            bottom_names = ncnn_utils.newest_bottom_names(ncnn_data)
+            bottom_names = ['tensor_%.8d' % (tensor_id - 2,), 'tensor_%.8d' % (tensor_id - 1,)]
             bottom_names = model.mapping_ema.export_ncnn(ncnn_data, bottom_names)
 
             # 如果1个张量作为了n(n>1)个层的输入张量，应该用Split层将它复制n份，每1层用掉1个。
@@ -802,7 +802,8 @@ def main(exp, args):
             pp = ncnn_data['pp']
             layer_id = ncnn_data['layer_id']
             tensor_id = ncnn_data['tensor_id']
-            pp = pp.replace('tensor_%.8d' % (0,), 'images')
+            pp = pp.replace('tensor_%.8d' % (0,), 'z')
+            pp = pp.replace('tensor_%.8d' % (1,), 'coeff')
             pp = pp.replace(bottom_names[-1], 'output')
             pp = '7767517\n%d %d\n' % (layer_id, tensor_id) + pp
             with open('%s.param' % mapping_name, 'w', encoding='utf-8') as f:
@@ -814,16 +815,16 @@ def main(exp, args):
             pp = ''
             layer_id = 0
             tensor_id = 0
-            pp += 'Input\tlayer_%.8d\t0 1 tensor_%.8d\n' % (layer_id, tensor_id)
+            pp += 'Input\tlayer_%.8d\t0 3 tensor_%.8d tensor_%.8d tensor_%.8d\n' % (layer_id, tensor_id, tensor_id + 1, tensor_id + 2)
             layer_id += 1
-            tensor_id += 1
+            tensor_id += 3
 
             ncnn_data = {}
             ncnn_data['bp'] = bp
             ncnn_data['pp'] = pp
             ncnn_data['layer_id'] = layer_id
             ncnn_data['tensor_id'] = tensor_id
-            bottom_names = ncnn_utils.newest_bottom_names(ncnn_data)
+            bottom_names = ['tensor_%.8d' % (tensor_id - 3,), 'tensor_%.8d' % (tensor_id - 2,), 'tensor_%.8d' % (tensor_id - 1,)]
             bottom_names = model.synthesis_ema.export_ncnn(ncnn_data, bottom_names)
 
             # 如果1个张量作为了n(n>1)个层的输入张量，应该用Split层将它复制n份，每1层用掉1个。
@@ -831,7 +832,9 @@ def main(exp, args):
             pp = ncnn_data['pp']
             layer_id = ncnn_data['layer_id']
             tensor_id = ncnn_data['tensor_id']
-            pp = pp.replace('tensor_%.8d' % (0,), 'images')
+            pp = pp.replace('tensor_%.8d' % (0,), 'ws0')
+            pp = pp.replace('tensor_%.8d' % (1,), 'ws1')
+            pp = pp.replace('tensor_%.8d' % (2,), 'mixing')
             pp = pp.replace(bottom_names[-1], 'output')
             pp = '7767517\n%d %d\n' % (layer_id, tensor_id) + pp
             with open('%s.param' % synthesis_name, 'w', encoding='utf-8') as f:
@@ -846,16 +849,17 @@ def main(exp, args):
             # -------------------- save seeds --------------------
             seeds = get_seeds(args.seeds)
             z_dim = model.mapping_ema.z_dim
-            seeds_file_name = 'seed_75.bin'
-            seed_bin = open(seeds_file_name, 'wb')
-            s = struct.pack('i', 0)
-            seed_bin.write(s)
+            seeds_dir = 'seeds'
+            os.makedirs(seeds_dir, exist_ok=True)
             for seed in seeds:
                 z = np.random.RandomState(seed).randn(1, z_dim)
+                seed_bin = open('%s/%d.bin'%(seeds_dir, seed), 'wb')
+                s = struct.pack('i', 0)
+                seed_bin.write(s)
                 for i1 in range(z_dim):
                     s = struct.pack('f', z[0][i1])
                     seed_bin.write(s)
-            logger.info("Saving seeds file in %s" % seeds_file_name)
+            logger.info("Saving seed files in %s dir."%seeds_dir)
         else:
             raise NotImplementedError("Architectures \'{}\' is not implemented.".format(archi_name))
 

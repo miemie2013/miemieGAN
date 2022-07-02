@@ -169,8 +169,6 @@ python tools/convert_weights.py -f exps/styleganv2ada/styleganv2ada_1024_metface
 
 
 ----------------------- 预测 -----------------------
-python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c StyleGANv2ADA_outputs/styleganv2ada_512_afhqcat/1.pth --seeds 85,100,75,458,1500 --save_result --device gpu
-
 
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_128_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_128_custom/48.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
@@ -491,12 +489,25 @@ python tools/calc_metrics.py -f exps/styleganv3/styleganv3_s_256_custom.py -c St
 python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --ncnn_output_path styleganv2ada_512_afhqcat --seeds 0_1500
 
 
-python tools/demo.py ncnn -f exps/ppyoloe/ppyoloe_crn_l_voc2012.py -c PPYOLOE_outputs/ppyoloe_crn_l_voc2012/6.pth --ncnn_output_path ppyoloe_crn_l_voc2012_epoch_6
+python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --ncnn_output_path styleganv2ada_256_custom_epoch_65 --seeds 0_1500
+
+
 
 
 
 cd build/examples
-./stylegan seed_75.bin styleganv2ada_512_afhqcat_mapping.param styleganv2ada_512_afhqcat_mapping.bin styleganv2ada_512_afhqcat_synthesis.param styleganv2ada_512_afhqcat_synthesis.bin
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin styleganv2ada_512_afhqcat_mapping.param styleganv2ada_512_afhqcat_mapping.bin styleganv2ada_512_afhqcat_synthesis.param styleganv2ada_512_afhqcat_synthesis.bin
+
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin styleganv2ada_512_afhqcat_mapping.param styleganv2ada_512_afhqcat_mapping.bin styleganv2ada_512_afhqcat_synthesis.param styleganv2ada_512_afhqcat_synthesis.bin 0 1 2 3 4 5 6
+
+
+./stylegan 0 512 14 1.0 seeds/85.bin styleganv2ada_256_custom_epoch_65_mapping.param styleganv2ada_256_custom_epoch_65_mapping.bin styleganv2ada_256_custom_epoch_65_synthesis.param styleganv2ada_256_custom_epoch_65_synthesis.bin
+
+
+./stylegan 1 512 14 1.0 seeds/85.bin seeds/55.bin styleganv2ada_256_custom_epoch_65_mapping.param styleganv2ada_256_custom_epoch_65_mapping.bin styleganv2ada_256_custom_epoch_65_synthesis.param styleganv2ada_256_custom_epoch_65_synthesis.bin 0 1 2 3 4 5 6
 
 
 

@@ -873,15 +873,20 @@ class StyleGANv2ADA_MappingNetwork(nn.Module):
 
     def export_ncnn(self, ncnn_data, bottom_names, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
         x = None
+        z, coeff = bottom_names
         if self.z_dim > 0:
-            x = normalize_2nd_moment2ncnn(ncnn_data, bottom_names)
+            x = normalize_2nd_moment2ncnn(ncnn_data, [z, ])
         if self.c_dim > 0:
             raise NotImplementedError("not implemented.")
+
+        w_avg_names = ncnn_utils.shell(ncnn_data, x, self.w_avg.unsqueeze(0).unsqueeze(0).unsqueeze(0), None, ncnn_weight_dims=1)  # [111W] 形状(ncnn)
 
         # Main layers.
         for idx in range(self.num_layers):
             layer = getattr(self, f'fc{idx}')
             x = layer.export_ncnn(ncnn_data, x)
+
+        x = ncnn_utils.lerp(ncnn_data, w_avg_names + x + [coeff, ])
         return x
 
 def modulated_conv2d(
@@ -1061,8 +1066,10 @@ class SynthesisLayer(nn.Module):
         x = bias_act(x, self.bias.to(x.dtype), act=self.activation, gain=act_gain, clamp=act_clamp)
         return x
 
-    def export_ncnn(self, ncnn_data, bottom_names, noise_mode='random', fused_modconv=True, gain=1):
-        x, w = bottom_names
+    def export_ncnn(self, ncnn_data, bottom_names, ws_i, noise_mode='random', fused_modconv=True, gain=1):
+        x, ws0, ws1, mixing = bottom_names
+        w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
+        w = w[0]
 
         styles = self.affine.export_ncnn(ncnn_data, [w, ])
         noise = self.noise_const * self.noise_strength
@@ -1098,8 +1105,10 @@ class ToRGBLayer(nn.Module):
         x = bias_act(x, self.bias.to(x.dtype), clamp=self.conv_clamp)
         return x
 
-    def export_ncnn(self, ncnn_data, bottom_names, noise_mode='random', fused_modconv=True, gain=1):
-        x, w = bottom_names
+    def export_ncnn(self, ncnn_data, bottom_names, ws_i, noise_mode='random', fused_modconv=True, gain=1):
+        x, ws0, ws1, mixing = bottom_names
+        w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
+        w = w[0]
         styles = self.affine.export_ncnn(ncnn_data, [w, ])
         styles = ncnn_utils.MulConstant(ncnn_data, styles, scale=self.weight_gain)
 
@@ -1198,7 +1207,7 @@ class SynthesisBlock(nn.Module):
         assert img is None or img.dtype == torch.float32
         return x, img
 
-    def export_ncnn(self, ncnn_data, bottom_names, force_fp32=False, fused_modconv=None, **layer_kwargs):
+    def export_ncnn(self, ncnn_data, bottom_names, start_i, force_fp32=False, fused_modconv=None, **layer_kwargs):
         dtype = torch.float32
         memory_format = torch.channels_last if self.channels_last and not force_fp32 else torch.contiguous_format
         fused_modconv = True
@@ -1206,23 +1215,27 @@ class SynthesisBlock(nn.Module):
         # Input.
         img = None
         if self.in_channels == 0:
-            ws = bottom_names[0]
+            ws0, ws1, mixing = bottom_names
             x = self.const.to(dtype=dtype, memory_format=memory_format)
             # 注意，这个ncnn_weight_dims=3不能省，否则的话在ncnn中const的dims会是4，参与卷积运算会计算出错误结果！
             # 把const的dims变成是3，参与卷积运算计算出正确结果！
-            const_name = ncnn_utils.shell(ncnn_data, bottom_names, x.unsqueeze(1), None, ncnn_weight_dims=3)  # [C1HW] 形状(ncnn)  dims=3
+            const_name = ncnn_utils.shell(ncnn_data, [ws0, ], x.unsqueeze(1), None, ncnn_weight_dims=3)  # [C1HW] 形状(ncnn)  dims=3
             x = const_name[0]
         else:
-            x, img, ws = bottom_names
+            x, img, ws0, ws1, mixing = bottom_names
 
+        i = start_i
         # Main layers.
         if self.in_channels == 0:
-            x = self.conv1.export_ncnn(ncnn_data, [x, ws], fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            i += 1
         elif self.architecture == 'resnet':
             raise NotImplementedError("not implemented.")
         else:
-            x = self.conv0.export_ncnn(ncnn_data, [x, ws], fused_modconv=fused_modconv, **layer_kwargs)
-            x = self.conv1.export_ncnn(ncnn_data, [x[0], ws], fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv0.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            i += 1
+            x = self.conv1.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            i += 1
 
         # ToRGB.
         if img is not None:
@@ -1230,7 +1243,7 @@ class SynthesisBlock(nn.Module):
             img = upsample2d2ncnn(ncnn_data, [img, ], self.resample_filter, self.img_channels)
             img = img[0]
         if self.is_last or self.architecture == 'skip':
-            y = self.torgb.export_ncnn(ncnn_data, [x[0], ws], fused_modconv=fused_modconv)
+            y = self.torgb.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], i, fused_modconv=fused_modconv)
             if img is not None:
                 img = ncnn_utils.binaryOp(ncnn_data, [img, y[0]], op='Add')
             else:
@@ -1289,14 +1302,24 @@ class StyleGANv2ADA_SynthesisNetwork(nn.Module):
         return img
 
     def export_ncnn(self, ncnn_data, bottom_names, **block_kwargs):
-        ws = bottom_names[0]
+        ws0, ws1, mixing = bottom_names
+
+        w_idx = 0
+        starts = []
+        for res in self.block_resolutions:
+            block = getattr(self, f'b{res}')
+            starts.append(w_idx)
+            w_idx += block.num_conv
+
         x = img = None
+        i = 0
         for res in self.block_resolutions:
             block = getattr(self, f'b{res}')
             if res == 4:
-                x, img = block.export_ncnn(ncnn_data, [ws, ], **block_kwargs)
+                x, img = block.export_ncnn(ncnn_data, [ws0, ws1, mixing], starts[i], **block_kwargs)
             else:
-                x, img = block.export_ncnn(ncnn_data, [x, img, ws], **block_kwargs)
+                x, img = block.export_ncnn(ncnn_data, [x, img, ws0, ws1, mixing], starts[i], **block_kwargs)
+            i += 1
         img = ncnn_utils.StyleganPost(ncnn_data, img)
         return img
 
