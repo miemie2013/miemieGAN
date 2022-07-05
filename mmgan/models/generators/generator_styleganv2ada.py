@@ -951,6 +951,7 @@ def modulated_conv2d(
 def modulated_conv2d2ncnn(
     ncnn_data,
     bottom_names,
+    use_fp16,
     up              = 1,        # Integer upsampling factor.
     down            = 1,        # Integer downsampling factor.
     padding         = 0,        # Padding with respect to the upsampled image.
@@ -969,15 +970,25 @@ def modulated_conv2d2ncnn(
     out_channels, in_channels, kh, kw = weight_shape
 
     # Pre-normalize inputs to avoid FP16 overflow.
-    # if x.dtype == torch.float16 and demodulate:
-    #     weight = weight * (1 / np.sqrt(in_channels * kh * kw) / weight.norm(float('inf'), dim=[1,2,3], keepdim=True)) # max_Ikk
-    #     styles = styles / styles.norm(float('inf'), dim=1, keepdim=True) # max_I
+    if use_fp16 and demodulate:
+        # weight = weight * (1 / np.sqrt(in_channels * kh * kw) / weight.norm(float('inf'), dim=[1,2,3], keepdim=True)) # max_Ikk
+        # styles = styles / styles.norm(float('inf'), dim=1, keepdim=True) # max_I
+        # weight.norm(float('inf'), dim=[1,2,3], keepdim=True)表示的是求1,2,3维元素绝对值的最大值。
+        weight_abs = ncnn_utils.abs(ncnn_data, [weight, ])
+        weight_abs_max = ncnn_utils.really_reduction(ncnn_data, weight_abs, op='ReduceMax', dims=(1, 2, 3), keepdim=True)
+        weight = ncnn_utils.MulConstant(ncnn_data, [weight, ], scale=1.0 / np.sqrt(in_channels * kh * kw))
+        weight = ncnn_utils.F4DOp1D(ncnn_data, [weight[0], weight_abs_max[0]], dim=0, op='Div')
+        weight = weight[0]
+        styles_abs = ncnn_utils.abs(ncnn_data, [styles, ])
+        styles_abs_max = ncnn_utils.really_reduction(ncnn_data, styles_abs, op='ReduceMax', dims=(1, ), keepdim=True)
+        styles = ncnn_utils.binaryOp(ncnn_data, [styles, styles_abs_max[0]], op='Div')
+        styles = styles[0]
 
     # Calculate per-sample weights and demodulation coefficients.
     w = None
     dcoefs = None
     if demodulate or fused_modconv:
-        w = ncnn_utils.F4DMul1D(ncnn_data, [weight, styles], dim=1)  # [OIkk]
+        w = ncnn_utils.F4DOp1D(ncnn_data, [weight, styles], dim=1, op='Mul')  # [OIkk]
     if demodulate:
         dcoefs = ncnn_utils.square(ncnn_data, w)
         # 不要使用ReduceSum，会超出半精度浮点数的最大表示范围65504.0，造成计算结果不准确。在rsqrt里指定scale来实现ReduceSum的效果。
@@ -985,9 +996,8 @@ def modulated_conv2d2ncnn(
         scale = float(in_channels * kh * kw)
         dcoefs = ncnn_utils.rsqrt(ncnn_data, dcoefs, eps=1e-8, scale=scale)
     if demodulate and fused_modconv:
-        # F4DMul1D()要求那个1D张量在ncnn中的形状是111W (CDHW)
         dcoefs = ncnn_utils.really_reshape(ncnn_data, dcoefs, shape=(1, 1, 1, -1))
-        w = ncnn_utils.F4DMul1D(ncnn_data, [w[0], dcoefs[0]], dim=0)  # [OIkk]
+        w = ncnn_utils.F4DOp1D(ncnn_data, [w[0], dcoefs[0]], dim=0, op='Mul')  # [OIkk]
 
     # Execute by scaling the activations before and after the convolution.
     if not fused_modconv:
@@ -1066,7 +1076,7 @@ class SynthesisLayer(nn.Module):
         x = bias_act(x, self.bias.to(x.dtype), act=self.activation, gain=act_gain, clamp=act_clamp)
         return x
 
-    def export_ncnn(self, ncnn_data, bottom_names, ws_i, noise_mode='random', fused_modconv=True, gain=1):
+    def export_ncnn(self, ncnn_data, bottom_names, use_fp16, ws_i, noise_mode='random', fused_modconv=True, gain=1):
         x, ws0, ws1, mixing = bottom_names
         w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
         w = w[0]
@@ -1077,7 +1087,7 @@ class SynthesisLayer(nn.Module):
         w_b = ncnn_utils.shell(ncnn_data, w, self.weight, self.bias)
 
         flip_weight = (self.up == 1)  # slightly faster
-        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0], noise_names[0]], up=self.up,
+        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0], noise_names[0]], use_fp16, up=self.up,
             padding=self.padding, resample_filter_tensor=self.resample_filter, flip_weight=flip_weight, fused_modconv=fused_modconv, weight_shape=self.weight.shape)
 
         act_gain = self.act_gain * gain
@@ -1105,7 +1115,7 @@ class ToRGBLayer(nn.Module):
         x = bias_act(x, self.bias.to(x.dtype), clamp=self.conv_clamp)
         return x
 
-    def export_ncnn(self, ncnn_data, bottom_names, ws_i, noise_mode='random', fused_modconv=True, gain=1):
+    def export_ncnn(self, ncnn_data, bottom_names, use_fp16, ws_i, fused_modconv=True):
         x, ws0, ws1, mixing = bottom_names
         w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
         w = w[0]
@@ -1113,7 +1123,7 @@ class ToRGBLayer(nn.Module):
         styles = ncnn_utils.MulConstant(ncnn_data, styles, scale=self.weight_gain)
 
         w_b = ncnn_utils.shell(ncnn_data, w, self.weight, self.bias)
-        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0]], demodulate=False, fused_modconv=fused_modconv, weight_shape=self.weight.shape)
+        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0]], use_fp16, demodulate=False, fused_modconv=fused_modconv, weight_shape=self.weight.shape)
         x = bias_act2ncnn(ncnn_data, [x[0], w_b[1]], clamp=self.conv_clamp)
         return x
 
@@ -1227,14 +1237,14 @@ class SynthesisBlock(nn.Module):
         i = start_i
         # Main layers.
         if self.in_channels == 0:
-            x = self.conv1.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], self.use_fp16, i, fused_modconv=fused_modconv, **layer_kwargs)
             i += 1
         elif self.architecture == 'resnet':
             raise NotImplementedError("not implemented.")
         else:
-            x = self.conv0.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv0.export_ncnn(ncnn_data, [x, ws0, ws1, mixing], self.use_fp16, i, fused_modconv=fused_modconv, **layer_kwargs)
             i += 1
-            x = self.conv1.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], i, fused_modconv=fused_modconv, **layer_kwargs)
+            x = self.conv1.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], self.use_fp16, i, fused_modconv=fused_modconv, **layer_kwargs)
             i += 1
 
         # ToRGB.
@@ -1243,7 +1253,7 @@ class SynthesisBlock(nn.Module):
             img = upsample2d2ncnn(ncnn_data, [img, ], self.resample_filter, self.img_channels)
             img = img[0]
         if self.is_last or self.architecture == 'skip':
-            y = self.torgb.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], i, fused_modconv=fused_modconv)
+            y = self.torgb.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], self.use_fp16, i, fused_modconv=fused_modconv)
             if img is not None:
                 img = ncnn_utils.binaryOp(ncnn_data, [img, y[0]], op='Add')
             else:

@@ -1137,6 +1137,26 @@ def square(ncnn_data, bottom_names):
     return top_names
 
 
+def abs(ncnn_data, bottom_names):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Abs\tlayer_%.8d\t1 1 %s %s' % (layer_id, bottom_names[0], top_names[0])
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
 def rsqrt(ncnn_data, bottom_names, eps=0.0, scale=None):
     bottom_names = check_bottom_names(bottom_names)
     bp = ncnn_data['bp']
@@ -1365,24 +1385,29 @@ def BiasAct(ncnn_data, bottom_names, act_type, alpha, gain, clamp):
     return top_names
 
 
-def F4DMul1D(ncnn_data, bottom_names, dim):
+def F4DOp1D(ncnn_data, bottom_names, dim, op):
     bottom_names = check_bottom_names(bottom_names)
     bp = ncnn_data['bp']
     pp = ncnn_data['pp']
     layer_id = ncnn_data['layer_id']
     tensor_id = ncnn_data['tensor_id']
 
-    '''
-    F4DMul1D()要求那个1D张量在ncnn中的形状是111W (CDHW)
-    '''
+    op_id = -1
+    if op == 'Mul':
+        op_id = 0
+    elif op == 'Div':
+        op_id = 1
+    else:
+        raise NotImplementedError("not implemented.")
 
     num_input = len(bottom_names)
     top_names = create_top_names(ncnn_data, num=1)
-    pp += 'F4DMul1D\tlayer_%.8d\t%d 1' % (layer_id, num_input)
+    pp += 'F4DOp1D\tlayer_%.8d\t%d 1' % (layer_id, num_input)
     for i in range(num_input):
         pp += ' %s' % bottom_names[i]
     pp += ' %s' % top_names[0]
     pp += ' 0=%d' % dim
+    pp += ' 1=%d' % op_id
     pp += '\n'
     layer_id += 1
     tensor_id += 1
@@ -1392,6 +1417,7 @@ def F4DMul1D(ncnn_data, bottom_names, dim):
     ncnn_data['layer_id'] = layer_id
     ncnn_data['tensor_id'] = tensor_id
     return top_names
+
 
 def AddNoise(ncnn_data, bottom_names):
     bottom_names = check_bottom_names(bottom_names)
