@@ -82,13 +82,16 @@ python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c
 
 python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c_G G_metfaces_t_1024.pth -c_Gema G_ema_metfaces_t_1024.pth -c_D D_metfaces_t_1024.pth -oc stylegan3_t_metfaces_1024.pth
 
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c_G G_ffhq_r_1024.pth -c_Gema G_ema_ffhq_r_1024.pth -c_D D_ffhq_r_1024.pth -oc stylegan3_r_ffhq_1024.pth
+
 
 
 ----------------------- 预测 -----------------------
 python tools/demo.py image -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
-
 python tools/demo.py image -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+python tools/demo.py image -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c stylegan3_r_ffhq_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
 
@@ -102,6 +105,8 @@ python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_r_512_afhqv2.py 
 
 python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --row_seeds 85 --col_seeds 55 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
+
+python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c stylegan3_r_ffhq_1024.pth --row_seeds 85 --col_seeds 55 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
 
 
