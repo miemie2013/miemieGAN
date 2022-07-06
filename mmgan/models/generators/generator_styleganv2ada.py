@@ -1,6 +1,3 @@
-# code was heavily based on https://github.com/clovaai/stargan-v2
-# Users should be careful about adopting these functions in any commercial matters.
-# https://github.com/clovaai/stargan-v2#license
 import torch
 from torch import nn
 import torch.nn.functional as F
