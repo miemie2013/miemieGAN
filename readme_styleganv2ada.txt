@@ -292,6 +292,11 @@ python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c s
 python tools/demo.py A2B -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
 
 
+(metfaces)
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 85,100,75,458,1500 --frames 120 --video_fps 30 --save_result --device gpu
+
+python tools/demo.py A2B -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 0_76 --frames 120 --video_fps 30 --save_result --device gpu
+
 
 
 ----------------------- style_mixing -----------------------
