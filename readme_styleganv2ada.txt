@@ -315,6 +315,10 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 7,8,9,10,11,12,13 --save_result --device gpu
 
 
+(styleganv3)
+python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+
+
 (afhq)
 python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c styleganv2ada_512_afhqcat.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 
