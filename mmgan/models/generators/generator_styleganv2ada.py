@@ -1098,7 +1098,6 @@ class ToRGBLayer(nn.Module):
         super().__init__()
         self.conv_clamp = conv_clamp
         self.affine = FullyConnectedLayer(w_dim, in_channels, bias_init=1)
-        # 假设屎山的channels_last都是False
         assert channels_last == False
         memory_format = torch.channels_last if channels_last else torch.contiguous_format
         self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
