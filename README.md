@@ -20,7 +20,7 @@ torch版本建议1.9.1+cu102或者更高；torchvision版本建议0.10.1+cu102�
 - [StyleGAN3](docs/README_StyleGAN.md)
 
 ## Updates!!
-* 【2022/07/08】 StyleGAN2ADA算法支持导出到NCNN！详情请参考[PPYOLOE](docs/README_PPYOLO.md) 文档的“NCNN”小节。
+* 【2022/07/08】 StyleGAN2ADA算法支持导出到NCNN！详情请参考[README_StyleGAN](docs/README_StyleGAN.md) 文档的“如何导出ncnn?”小节。
 
 ## 传送门
 
