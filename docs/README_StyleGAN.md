@@ -113,7 +113,7 @@ python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom
 
 stylegan3也是支持style_mixing的，比如输入
 ```
-python tools/demo.py style_mixing -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --row_seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
+python tools/demo.py style_mixing -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --seeds 85,100,75,458,1500 --col_seeds 55,821,1789,293 --col_styles 0,1,2,3,4,5,6 --save_result --device gpu
 ```
 你将得到：
 
@@ -780,7 +780,7 @@ class ToRGBLayer(nn.Module):
         x = bias_act2ncnn(ncnn_data, [x[0], w_b[1]], clamp=self.conv_clamp)
         return x
 ```
-SynthesisLayer和ToRGBLayer结构类似，进来的w向量都经过全连接层变成了styles向量，styles向量和卷积层的权重weight结合（在modulated_conv2d()方法里），使特征图有特定风格。咩酱在导出SynthesisLayer和ToRGBLayer时，都先导出SynthesisLayer和ToRGBLayer层，使ncnn得stylegan支持style_mixing!
+SynthesisLayer和ToRGBLayer结构类似，进来的w向量都经过全连接层变成了styles向量，styles向量和卷积层的权重weight结合（在modulated_conv2d()方法里），使特征图有特定风格。咩酱在导出SynthesisLayer和ToRGBLayer时，都先导出StyleMixingSwitcher层，使ncnn得stylegan支持style_mixing!
 
 ```
 class StyleMixingSwitcher : public ncnn::Layer
@@ -868,7 +868,7 @@ python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -
 
 然后，下载[ncnn](https://github.com/miemie2013/ncnn) 这个仓库（它自带了glslang和实现了ppyoloe、stylegan推理），按照官方[how-to-build](https://github.com/Tencent/ncnn/wiki/how-to-build) 文档进行编译ncnn。
 编译完成后，
-将上文得到的styleganv2ada_512_afhqcat_mapping.param、styleganv2ada_512_afhqcat_mapping.bin、...seeds文件夹 这些文件复制到ncnn的build/examples/目录下，最后在ncnn根目录下运行以下命令进行ppyoloe的预测：
+将上文得到的styleganv2ada_512_afhqcat_mapping.param、styleganv2ada_512_afhqcat_mapping.bin、...seeds文件夹 这些文件复制到ncnn的build/examples/目录下，最后在ncnn根目录下运行以下命令进行stylegan的预测：
 
 ```
 cd build/examples
@@ -916,8 +916,7 @@ cd build/examples
 
 比如，可以用这条命令请出w_avg妈妈：
 ```
-./stylegan 0 512 14 0.0 seeds/85.bin styleganv2ada_256_custom_epoch_65_mapping.param styleganv2ada_256_custom_epoch_65_mapping.bin style
-ganv2ada_256_custom_epoch_65_synthesis.param styleganv2ada_256_custom_epoch_65_synthesis.bin
+./stylegan 0 512 14 0.0 seeds/85.bin styleganv2ada_256_custom_epoch_65_mapping.param styleganv2ada_256_custom_epoch_65_mapping.bin styleganv2ada_256_custom_epoch_65_synthesis.param styleganv2ada_256_custom_epoch_65_synthesis.bin
 ```
 ![Example 0](003/w_avg.png)
 
