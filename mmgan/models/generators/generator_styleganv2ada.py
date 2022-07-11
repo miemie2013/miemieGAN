@@ -354,7 +354,7 @@ def upfirdn2d2ncnn(ncnn_data, bottom_names, f, out_C, up=1, down=1, padding=0, f
     x = bottom_names
     num_channels = out_C
     if f is None:
-        f = torch.ones([1, 1], dtype=torch.float32, device=x.device)
+        f = torch.ones([1, 1], dtype=torch.float32)
 
     # batch_size, num_channels, in_height, in_width = x.shape
     upx, upy = _parse_scaling(up)
@@ -362,13 +362,15 @@ def upfirdn2d2ncnn(ncnn_data, bottom_names, f, out_C, up=1, down=1, padding=0, f
     padx0, padx1, pady0, pady1 = _parse_padding(padding)
 
     assert upx == upy
-    assert upx in [1, 2]
+    assert upx in [1, 2, 4]
 
     # Upsample by inserting zeros.
     if upx == 1:
         pass
     elif upx == 2:
         x = ncnn_utils.up2(ncnn_data, x)
+    elif upx == 4:
+        x = ncnn_utils.up4(ncnn_data, x)
 
     # Pad or crop.
     # x = torch.nn.functional.pad(x, [max(padx0, 0), max(padx1, 0), max(pady0, 0), max(pady1, 0)])
@@ -398,9 +400,10 @@ def upfirdn2d2ncnn(ncnn_data, bottom_names, f, out_C, up=1, down=1, padding=0, f
         resample_filter_names = ncnn_utils.shell(ncnn_data, x, f, None)
         x = ncnn_utils.Fconv2d_depthwise(ncnn_data, [x[0], resample_filter_names[0]], groups=num_channels)
     else:
-        # x = F.conv2d(x, weight=f.unsqueeze(2), groups=num_channels)
-        # x = F.conv2d(x, weight=f.unsqueeze(3), groups=num_channels)
-        raise NotImplementedError("not implemented.")
+        resample_filter_names = ncnn_utils.shell(ncnn_data, x, f.unsqueeze(2), None)
+        x = ncnn_utils.Fconv2d_depthwise(ncnn_data, [x[0], resample_filter_names[0]], groups=num_channels)
+        resample_filter_names2 = ncnn_utils.shell(ncnn_data, x, f.unsqueeze(3), None)
+        x = ncnn_utils.Fconv2d_depthwise(ncnn_data, [x[0], resample_filter_names2[0]], groups=num_channels)
 
     # Downsample by throwing away pixels.
     assert downy == downx

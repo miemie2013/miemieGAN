@@ -1025,7 +1025,12 @@ def really_reshape(ncnn_data, bottom_names, shape):
 
 
 def list_equal(arr1, arr2):
-    return arr1[0] == arr2[0] and arr1[1] == arr2[1] and arr1[2] == arr2[2] and arr1[3] == arr2[3]
+    if len(arr1) == 4:
+        return arr1[0] == arr2[0] and arr1[1] == arr2[1] and arr1[2] == arr2[2] and arr1[3] == arr2[3]
+    elif len(arr1) == 3:
+        return arr1[0] == arr2[0] and arr1[1] == arr2[1] and arr1[2] == arr2[2]
+    elif len(arr1) == 2:
+        return arr1[0] == arr2[0] and arr1[1] == arr2[1]
 
 def really_permute(ncnn_data, bottom_names, perm):
     bottom_names = check_bottom_names(bottom_names)
@@ -1065,6 +1070,18 @@ def really_permute(ncnn_data, bottom_names, perm):
         //23 = c d h w
     但是维度排列你要倒着看。比如 CDHW格式 对应 上图的 w h d c，
     你要转成 DCHW格式(即python端perm==[1, 0, 2, 3])  对应 上图的 w h c d，所以参数填6。其它情况同理。
+    
+        // order_type
+        // 0 = w h
+        // 1 = h w
+        
+        // order_type
+        // 0 = w h c
+        // 1 = h w c
+        // 2 = w c h
+        // 3 = c w h
+        // 4 = h c w
+        // 5 = c h w
     '''
     #
     args = ''
@@ -1073,6 +1090,20 @@ def really_permute(ncnn_data, bottom_names, perm):
             raise NotImplementedError("not implemented.")
         elif list_equal(perm, [1, 0, 2, 3]):
             args = ' 0=6'
+        else:
+            raise NotImplementedError("not implemented.")
+    elif len(perm) == 3:
+        if list_equal(perm, [0, 1, 2]):
+            raise NotImplementedError("not implemented.")
+        elif list_equal(perm, [2, 0, 1]):
+            args = ' 0=4'
+        else:
+            raise NotImplementedError("not implemented.")
+    elif len(perm) == 2:
+        if list_equal(perm, [0, 1]):
+            raise NotImplementedError("not implemented.")
+        elif list_equal(perm, [1, 0]):
+            args = ' 0=1'
         else:
             raise NotImplementedError("not implemented.")
     else:
@@ -1179,6 +1210,66 @@ def rsqrt(ncnn_data, bottom_names, eps=0.0, scale=None):
     return top_names
 
 
+def sqrt(ncnn_data, bottom_names, eps=0.0):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Sqrt\tlayer_%.8d\t1 1 %s %s 0=%e' % (layer_id, bottom_names[0], top_names[0], eps)
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
+def sin(ncnn_data, bottom_names, scale=1.0):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Sin\tlayer_%.8d\t1 1 %s %s 0=%e' % (layer_id, bottom_names[0], top_names[0], scale)
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
+def clamp(ncnn_data, bottom_names, min_v=0.0, max_v=1.0):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Clamp\tlayer_%.8d\t1 1 %s %s 0=%e 1=%e' % (layer_id, bottom_names[0], top_names[0], min_v, max_v)
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
 def lerp(ncnn_data, bottom_names):
     bottom_names = check_bottom_names(bottom_names)
     bp = ncnn_data['bp']
@@ -1228,7 +1319,7 @@ def StyleMixingSwitcher(ncnn_data, bottom_names, ws_i=0):
     return top_names
 
 
-def MulConstant(ncnn_data, bottom_names, scale=1.0):
+def MulConstant(ncnn_data, bottom_names, scale=1.0, bias=0.0):
     bottom_names = check_bottom_names(bottom_names)
     bp = ncnn_data['bp']
     pp = ncnn_data['pp']
@@ -1236,7 +1327,7 @@ def MulConstant(ncnn_data, bottom_names, scale=1.0):
     tensor_id = ncnn_data['tensor_id']
 
     top_names = create_top_names(ncnn_data, num=1)
-    pp += 'MulConstant\tlayer_%.8d\t1 1 %s %s 0=%e' % (layer_id, bottom_names[0], top_names[0], scale)
+    pp += 'MulConstant\tlayer_%.8d\t1 1 %s %s 0=%e 1=%e' % (layer_id, bottom_names[0], top_names[0], scale, bias)
     pp += '\n'
     layer_id += 1
     tensor_id += 1
@@ -1374,6 +1465,10 @@ def BiasAct(ncnn_data, bottom_names, act_type, alpha, gain, clamp):
     pp += ' 1=%e' % alpha
     pp += ' 2=%e' % gain
     pp += ' 3=%e' % clamp
+    if num_input == 1:
+        pp += ' 4=0'
+    elif num_input == 2:
+        pp += ' 4=1'
     pp += '\n'
     layer_id += 1
     tensor_id += 1
@@ -1397,6 +1492,10 @@ def F4DOp1D(ncnn_data, bottom_names, dim, op):
         op_id = 0
     elif op == 'Div':
         op_id = 1
+    elif op == 'Add':
+        op_id = 2
+    elif op == 'Sub':
+        op_id = 3
     else:
         raise NotImplementedError("not implemented.")
 
@@ -1738,6 +1837,46 @@ def up2(ncnn_data, bottom_names):
 
     top_names = create_top_names(ncnn_data, num=1)
     pp += 'Up2\tlayer_%.8d\t1 1 %s %s' % (layer_id, bottom_names[0], top_names[0])
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
+def up4(ncnn_data, bottom_names):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Up4\tlayer_%.8d\t1 1 %s %s' % (layer_id, bottom_names[0], top_names[0])
+    pp += '\n'
+    layer_id += 1
+    tensor_id += 1
+
+    ncnn_data['bp'] = bp
+    ncnn_data['pp'] = pp
+    ncnn_data['layer_id'] = layer_id
+    ncnn_data['tensor_id'] = tensor_id
+    return top_names
+
+
+def Transforms(ncnn_data, bottom_names):
+    bottom_names = check_bottom_names(bottom_names)
+    bp = ncnn_data['bp']
+    pp = ncnn_data['pp']
+    layer_id = ncnn_data['layer_id']
+    tensor_id = ncnn_data['tensor_id']
+
+    top_names = create_top_names(ncnn_data, num=1)
+    pp += 'Transforms\tlayer_%.8d\t1 1 %s %s' % (layer_id, bottom_names[0], top_names[0])
     pp += '\n'
     layer_id += 1
     tensor_id += 1

@@ -8,6 +8,8 @@ import scipy
 import scipy.signal
 
 from mmgan.models.generators.generator_styleganv2ada import bias_act, upfirdn2d
+from mmgan.models.generators.generator_styleganv2ada import bias_act2ncnn, upfirdn2d2ncnn, normalize_2nd_moment2ncnn
+import mmgan.models.ncnn_utils as ncnn_utils
 
 
 def modulated_conv2d(
@@ -46,6 +48,58 @@ def modulated_conv2d(
     x = F.conv2d(input=x, weight=w.to(x.dtype), padding=padding, groups=batch_size)
     x = x.reshape(batch_size, -1, *x.shape[2:])
     return x
+
+
+def modulated_conv2d2ncnn(
+    ncnn_data,
+    bottom_names,
+    use_fp16,
+    w_shape,
+    demodulate  = True, # Apply weight demodulation?
+    padding     = 0,    # Padding: int or [padH, padW]
+    input_gain  = None, # Optional scale factors for the input channels: [], [in_channels], or [batch_size, in_channels]
+):
+    x, w, s = bottom_names
+    x = [x, ]
+    w = [w, ]
+    s = [s, ]
+    out_channels, in_channels, kh, kw = w_shape
+
+    # Pre-normalize inputs.
+    if demodulate:
+        temp = ncnn_utils.square(ncnn_data, w)
+        temp = ncnn_utils.really_reduction(ncnn_data, temp, op='ReduceMean', dims=(1, 2, 3), keepdim=True)
+        temp = ncnn_utils.rsqrt(ncnn_data, temp, eps=0.0, scale=None)
+        temp = ncnn_utils.really_reshape(ncnn_data, temp, shape=(1, 1, 1, -1))
+        w = ncnn_utils.F4DOp1D(ncnn_data, [w[0], temp[0]], dim=0, op='Mul')
+        temp2 = ncnn_utils.square(ncnn_data, s)
+        temp2 = ncnn_utils.really_reduction(ncnn_data, temp2, op='ReduceMean', dims=(0, ), keepdim=True)
+        temp2 = ncnn_utils.rsqrt(ncnn_data, temp2, eps=0.0, scale=None)
+        s = ncnn_utils.binaryOp(ncnn_data, [s[0], temp2[0]], op='Mul')
+
+    # Modulate weights.
+    w = ncnn_utils.F4DOp1D(ncnn_data, [w[0], s[0]], dim=1, op='Mul')
+
+    # Demodulate weights.
+    if demodulate:
+        dcoefs = ncnn_utils.square(ncnn_data, w)
+        # 不要使用ReduceSum，会超出半精度浮点数的最大表示范围65504.0，造成计算结果不准确。在rsqrt里指定scale来实现ReduceSum的效果。
+        dcoefs = ncnn_utils.really_reduction(ncnn_data, dcoefs, op='ReduceMean', dims=(1, 2, 3), keepdim=True)
+        scale = float(in_channels * kh * kw)
+        dcoefs = ncnn_utils.rsqrt(ncnn_data, dcoefs, eps=1e-8, scale=scale)
+        dcoefs = ncnn_utils.really_reshape(ncnn_data, dcoefs, shape=(1, 1, 1, -1))
+        w = ncnn_utils.F4DOp1D(ncnn_data, [w[0], dcoefs[0]], dim=0, op='Mul')  # [OIkk]
+
+    # Apply input scaling.
+    if input_gain is not None:
+        input_gain_ = input_gain.cpu().detach().numpy()
+        w = ncnn_utils.MulConstant(ncnn_data, w, scale=input_gain_, bias=0.0)
+
+    # Execute as one fused op using grouped convolution.
+    x = ncnn_utils.Fconv2d(ncnn_data, [x[0], w[0]], padding=padding, dilation=1, groups=1)
+    return x
+
+
 
 def filter2d(x, f, padding=0, flip_filter=False, gain=1):
     padx0, padx1, pady0, pady1 = _parse_padding(padding)
@@ -93,6 +147,32 @@ class FullyConnectedLayer(nn.Module):
             x = x.matmul(w.t())
             x = bias_act(x, b, act=self.activation)
         return x
+
+    def export_ncnn(self, ncnn_data, bottom_names):
+        x_dtype = torch.float32
+        w = self.weight.to(x_dtype) * self.weight_gain
+        b = self.bias
+        if b is not None:
+            b = b.to(x_dtype)
+            if self.bias_gain != 1:
+                b = b * self.bias_gain
+
+        w_b = ncnn_utils.shell(ncnn_data, bottom_names, w.unsqueeze(2).unsqueeze(3), b)
+
+        if self.activation == 'linear' and b is not None:
+            w_name = w_b[0]
+            b_name = w_b[1]
+            # 传入Fmatmul层的w的形状是[out_C, in_C, 1, 1] 所以不要使用
+            # wt_names = ncnn_utils.really_permute(ncnn_data, w_name, perm=(1, 0, 2, 3))  # [CD11] -> [DC11]   这句代码
+            bottom_names = ncnn_utils.Fmatmul(ncnn_data, [bottom_names[0], w_name, b_name], w.shape)
+        else:
+            w_name = w_b[0]
+            b_name = w_b[1]
+            # 传入Fmatmul层的w的形状是[out_C, in_C, 1, 1] 所以不要使用
+            # wt_names = ncnn_utils.really_permute(ncnn_data, w_name, perm=(1, 0, 2, 3))  # [CD11] -> [DC11]   这句代码
+            bottom_names = ncnn_utils.Fmatmul(ncnn_data, [bottom_names[0], w_name], w.shape)
+            bottom_names = bias_act2ncnn(ncnn_data, [bottom_names[0], b_name], act=self.activation)
+        return bottom_names
 
 
 class StyleGANv3_MappingNetwork(nn.Module):
@@ -145,6 +225,24 @@ class StyleGANv3_MappingNetwork(nn.Module):
         x = x.unsqueeze(1).repeat([1, self.num_ws, 1])
         if truncation_psi != 1:
             x[:, :truncation_cutoff] = self.w_avg.lerp(x[:, :truncation_cutoff], truncation_psi)
+        return x
+
+    def export_ncnn(self, ncnn_data, bottom_names):
+        x = None
+        z, coeff = bottom_names
+        if self.z_dim > 0:
+            x = normalize_2nd_moment2ncnn(ncnn_data, [z, ])
+        if self.c_dim > 0:
+            raise NotImplementedError("not implemented.")
+
+        w_avg_names = ncnn_utils.shell(ncnn_data, x, self.w_avg.unsqueeze(0).unsqueeze(0).unsqueeze(0), None, ncnn_weight_dims=1)  # [111W] 形状(ncnn)
+
+        # Main layers.
+        for idx in range(self.num_layers):
+            layer = getattr(self, f'fc{idx}')
+            x = layer.export_ncnn(ncnn_data, x)
+
+        x = ncnn_utils.lerp(ncnn_data, w_avg_names + x + [coeff, ])
         return x
 
 
@@ -223,6 +321,69 @@ class SynthesisInput(nn.Module):
         x = x.permute(0, 3, 1, 2) # [batch, channel, height, width]
         return x
 
+    def export_ncnn(self, ncnn_data, bottom_names, ws_i):
+        ws0, ws1, mixing = bottom_names
+        w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
+        w = w[0]
+
+        freqs_name = ncnn_utils.shell(ncnn_data, [ws0, ], self.freqs.unsqueeze(0).unsqueeze(0), None, ncnn_weight_dims=2)
+        phases_name = ncnn_utils.shell(ncnn_data, [ws0, ], self.phases.unsqueeze(0).unsqueeze(0).unsqueeze(0), None, ncnn_weight_dims=1)
+
+        # Apply learned transformation.
+        t = self.affine.export_ncnn(ncnn_data, [w, ])
+
+        temp_t = ncnn_utils.crop(ncnn_data, t, starts='1,%d' % (0, ), ends='1,%d' % (2, ), axes='1,0')
+        temp_t = ncnn_utils.reduction(ncnn_data, temp_t, op='ReduceSumSquare', input_dims=1, dims=(0, ), keepdim=True)
+
+        temp_t = ncnn_utils.rsqrt(ncnn_data, temp_t, eps=0.)
+
+        # 最后是逐元素相乘
+        t = [t[0], temp_t[0]]
+        t = ncnn_utils.binaryOp(ncnn_data, t, op='Mul')
+
+        transforms = ncnn_utils.Transforms(ncnn_data, t)
+        transforms_0 = ncnn_utils.crop(ncnn_data, transforms, starts='1,%d' % (2, ), ends='1,%d' % (3, ), axes='1,1')
+        transforms_0 = ncnn_utils.really_permute(ncnn_data, transforms_0, perm=(1, 0))
+        phases = ncnn_utils.Fmatmul(ncnn_data, [freqs_name[0], transforms_0[0]], (1, 2))
+        phases = ncnn_utils.really_reshape(ncnn_data, phases, (self.channels, ))
+        phases = ncnn_utils.binaryOp(ncnn_data, [phases[0], phases_name[0]], op='Add')
+
+        transforms_1 = ncnn_utils.crop(ncnn_data, transforms, starts='1,%d' % (0, ), ends='1,%d' % (2, ), axes='1,1')
+        transforms_1 = ncnn_utils.really_permute(ncnn_data, transforms_1, perm=(1, 0))
+        freqs = ncnn_utils.Fmatmul(ncnn_data, [freqs_name[0], transforms_1[0]], (2, 2))
+
+        amplitudes = ncnn_utils.reduction(ncnn_data, freqs, op='ReduceSumSquare', input_dims=2, dims=(2,), keepdim=False)
+        amplitudes = ncnn_utils.sqrt(ncnn_data, amplitudes)
+        B = (self.sampling_rate / 2 - self.bandwidth)
+        amplitudes = ncnn_utils.MulConstant(ncnn_data, amplitudes, scale=-1.0/B, bias=1.0 + self.bandwidth / B)
+        amplitudes = ncnn_utils.clamp(ncnn_data, amplitudes, min_v=0.0, max_v=1.0)
+
+        theta = torch.eye(2, 3, device=self.transform.device)
+        theta[0, 0] = 0.5 * self.size[0] / self.sampling_rate
+        theta[1, 1] = 0.5 * self.size[1] / self.sampling_rate
+        grids = torch.nn.functional.affine_grid(theta.unsqueeze(0), [1, 1, self.size[1], self.size[0]], align_corners=False)
+        d0, d1, d2, d3 = grids.shape
+        grids_name = ncnn_utils.shell(ncnn_data, [ws0, ], grids.reshape((1, 1, d0*d1*d2, d3)), None, ncnn_weight_dims=2)
+
+        x = ncnn_utils.Fmatmul(ncnn_data, [grids_name[0], freqs[0]], (self.channels, 2))
+        x = ncnn_utils.really_reshape(ncnn_data, x, (d0, d1, d2, self.channels))
+
+        x = ncnn_utils.F4DOp1D(ncnn_data, [x[0], phases[0]], dim=3, op='Add')
+        x = ncnn_utils.sin(ncnn_data, x, scale=2.0)
+
+        x = ncnn_utils.F4DOp1D(ncnn_data, [x[0], amplitudes[0]], dim=3, op='Mul')
+
+
+        # Apply trainable mapping.
+        weight_ = self.weight / np.sqrt(self.channels)
+        weight_name = ncnn_utils.shell(ncnn_data, [ws0, ], weight_.unsqueeze(0).unsqueeze(0), None, ncnn_weight_dims=2)
+
+        x = ncnn_utils.really_reshape(ncnn_data, x, (d0*d1*d2, self.channels))
+        x = ncnn_utils.Fmatmul(ncnn_data, [x[0], weight_name[0]], (self.channels, self.channels))
+        x = ncnn_utils.really_reshape(ncnn_data, x, (d1, d2, self.channels))
+        x = ncnn_utils.really_permute(ncnn_data, x, perm=[2, 0, 1])
+        return x
+
 
 def _get_filter_size(f):
     if f is None:
@@ -275,6 +436,26 @@ def filtered_lrelu(x, fu=None, fd=None, b=None, up=1, down=1, padding=0, gain=np
 
     # Check output shape & dtype.
     assert x.dtype == in_dtype
+    return x
+
+
+def filtered_lrelu2ncnn(ncnn_data, bottom_names, out_C, fu=None, fd=None, up=1, down=1, padding=0, gain=np.sqrt(2), slope=0.2, clamp=None, flip_filter=False):
+    x, b = bottom_names
+    fu_w, fu_h = _get_filter_size(fu)
+    fd_w, fd_h = _get_filter_size(fd)
+    assert isinstance(up, int) and up >= 1
+    assert isinstance(down, int) and down >= 1
+    px0, px1, py0, py1 = _parse_padding(padding)
+    assert gain == float(gain) and gain > 0
+    assert slope == float(slope) and slope >= 0
+    assert clamp is None or (clamp == float(clamp) and clamp >= 0)
+
+    # Compute using existing ops.
+    x = bias_act2ncnn(ncnn_data, [x, b]) # Apply bias.
+    x = upfirdn2d2ncnn(ncnn_data, x, fu, out_C, up=up, padding=[px0, px1, py0, py1], gain=up**2, flip_filter=flip_filter) # Upsample.
+    x = bias_act2ncnn(ncnn_data, x, act='lrelu', alpha=slope, gain=gain, clamp=clamp) # Bias, leaky ReLU, clamp.
+    x = upfirdn2d2ncnn(ncnn_data, x, fd, out_C, down=down, flip_filter=flip_filter) # Downsample.
+
     return x
 
 
@@ -385,6 +566,33 @@ class SynthesisLayer(nn.Module):
         assert x.dtype == dtype
         return x
 
+    def export_ncnn(self, ncnn_data, bottom_names, ws_i, noise_mode='random', force_fp32=False, update_emas=False):
+        x, ws0, ws1, mixing = bottom_names
+        w = ncnn_utils.StyleMixingSwitcher(ncnn_data, [ws0, ws1, mixing], ws_i=ws_i)
+        w = w[0]
+
+        input_gain = self.magnitude_ema.rsqrt()
+
+        # Execute affine layer.
+        styles = self.affine.export_ncnn(ncnn_data, [w, ])
+        if self.is_torgb:
+            weight_gain = 1 / np.sqrt(self.in_channels * (self.conv_kernel ** 2))
+            styles = ncnn_utils.MulConstant(ncnn_data, styles, scale=weight_gain)
+
+        w_b = ncnn_utils.shell(ncnn_data, w, self.weight, self.bias)
+
+        # Execute modulated conv2d.
+        # dtype = torch.float16 if (self.use_fp16 and not force_fp32) else torch.float32
+        x = modulated_conv2d2ncnn(ncnn_data, [x, w_b[0], styles[0]], self.use_fp16, w_shape=self.weight.shape, padding=self.conv_kernel-1, demodulate=(not self.is_torgb), input_gain=input_gain)
+
+        # Execute bias, filtered leaky ReLU, and clamping.
+        gain = 1 if self.is_torgb else np.sqrt(2)
+        slope = 1 if self.is_torgb else 0.2
+        x = filtered_lrelu2ncnn(ncnn_data, [x[0], w_b[1]], self.out_channels, fu=self.up_filter, fd=self.down_filter,
+            up=self.up_factor, down=self.down_factor, padding=self.padding, gain=gain, slope=slope, clamp=self.conv_clamp)
+
+        return x
+
     @staticmethod
     def design_lowpass_filter(numtaps, cutoff, width, fs, radial=False):
         assert numtaps >= 1
@@ -487,5 +695,22 @@ class StyleGANv3_SynthesisNetwork(nn.Module):
 
         # Ensure correct shape and dtype.
         x = x.to(torch.float32)
+        return x
+
+    def export_ncnn(self, ncnn_data, bottom_names, **layer_kwargs):
+        ws0, ws1, mixing = bottom_names
+
+        # Execute layers.
+        ws_idx = 0
+        x = self.input.export_ncnn(ncnn_data, [ws0, ws1, mixing], ws_idx)
+        ws_idx += 1
+        for name in self.layer_names:
+            layer = getattr(self, name)
+            x = layer.export_ncnn(ncnn_data, [x[0], ws0, ws1, mixing], ws_idx, **layer_kwargs)
+            ws_idx += 1
+        if self.output_scale != 1:
+            x = ncnn_utils.MulConstant(ncnn_data, x, scale=self.output_scale)
+
+        x = ncnn_utils.StyleganPost(ncnn_data, x)
         return x
 
