@@ -216,6 +216,19 @@ python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c
 python tools/demo.py image -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --seeds 85,100,75,458,1500 --save_result --device gpu
 
 
+(styleganv3_r_1024_ffhq)
+python tools/demo.py image -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c stylegan3_r_ffhq_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+(styleganv3_t_512_afhqv2)
+python tools/demo.py image -f exps/styleganv3/styleganv3_t_512_afhqv2.py -c stylegan3_t_afhqv2_512.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+(styleganv3_t_1024_ffhq)
+python tools/demo.py image -f exps/styleganv3/styleganv3_t_1024_ffhq.py -c stylegan3_t_ffhq_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+(styleganv3_t_1024_metfaces)
+python tools/demo.py image -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --seeds 85,100,75,458,1500 --save_result --device gpu
+
+
 
 (metfaces)
 python tools/demo.py image -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --seeds 85,100,75,458,1500 --save_result --device gpu
@@ -508,6 +521,13 @@ python tools/demo.py ncnn -f exps/styleganv3/styleganv3_s_256_custom.py -c Style
 
 python tools/demo.py ncnn -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --ncnn_output_path stylegan3_r_afhqv2_512 --seeds 0_1500
 
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c stylegan3_r_ffhq_1024.pth --ncnn_output_path stylegan3_r_ffhq_1024 --seeds 0_1500
+
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_512_afhqv2.py -c stylegan3_t_afhqv2_512.pth --ncnn_output_path stylegan3_t_afhqv2_512 --seeds 0_1500
+
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_1024_ffhq.py -c stylegan3_t_ffhq_1024.pth --ncnn_output_path stylegan3_t_ffhq_1024 --seeds 0_1500
+
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --ncnn_output_path stylegan3_t_metfaces_1024 --seeds 0_1500
 
 
 
@@ -556,6 +576,37 @@ cd build/examples
 ./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_afhqv2_512_mapping.param stylegan3_r_afhqv2_512_mapping.bin stylegan3_r_afhqv2_512_synthesis.param stylegan3_r_afhqv2_512_synthesis.bin 0 1 2 3 4 5 6
 
 ./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_afhqv2_512_mapping.param stylegan3_r_afhqv2_512_mapping.bin stylegan3_r_afhqv2_512_synthesis.param stylegan3_r_afhqv2_512_synthesis.bin 120 30
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin 120 30
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin 120 30
+
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin 120 30
+
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin 120 30
+
 
 
 

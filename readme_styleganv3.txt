@@ -84,6 +84,12 @@ python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_1024_metfaces.py
 
 python tools/convert_weights.py -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c_G G_ffhq_r_1024.pth -c_Gema G_ema_ffhq_r_1024.pth -c_D D_ffhq_r_1024.pth -oc stylegan3_r_ffhq_1024.pth
 
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_512_afhqv2.py -c_G G_afhqv2_t_512.pth -c_Gema G_ema_afhqv2_t_512.pth -c_D D_afhqv2_t_512.pth -oc stylegan3_t_afhqv2_512.pth
+
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_1024_ffhq.py -c_G G_ffhq_t_1024.pth -c_Gema G_ema_ffhq_t_1024.pth -c_D D_ffhq_t_1024.pth -oc stylegan3_t_ffhq_1024.pth
+
+python tools/convert_weights.py -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c_G G_metfaces_t_1024.pth -c_Gema G_ema_metfaces_t_1024.pth -c_D D_metfaces_t_1024.pth -oc stylegan3_t_metfaces_1024.pth
+
 
 
 ----------------------- 预测 -----------------------
