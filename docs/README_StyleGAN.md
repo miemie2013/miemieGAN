@@ -861,6 +861,12 @@ python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_512_afhqcat.py -c 
 python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_256_custom.py -c StyleGANv2ADA_outputs/styleganv2ada_256_custom/65.pth --ncnn_output_path styleganv2ada_256_custom_epoch_65 --seeds 0_1500
 python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_metfaces.pth --ncnn_output_path styleganv2ada_1024_metfaces --seeds 0_1500
 python tools/demo.py ncnn -f exps/styleganv2ada/styleganv2ada_1024_metfaces.py -c styleganv2ada_1024_ffhq.pth --ncnn_output_path styleganv2ada_1024_ffhq --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_s_256_custom.py -c StyleGANv3_outputs/styleganv3_s_256_custom/77.pth --ncnn_output_path styleganv3_s_256_custom_epoch_77 --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_r_512_afhqv2.py -c stylegan3_r_afhqv2_512.pth --ncnn_output_path stylegan3_r_afhqv2_512 --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_r_1024_ffhq.py -c stylegan3_r_ffhq_1024.pth --ncnn_output_path stylegan3_r_ffhq_1024 --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_512_afhqv2.py -c stylegan3_t_afhqv2_512.pth --ncnn_output_path stylegan3_t_afhqv2_512 --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_1024_ffhq.py -c stylegan3_t_ffhq_1024.pth --ncnn_output_path stylegan3_t_ffhq_1024 --seeds 0_1500
+python tools/demo.py ncnn -f exps/styleganv3/styleganv3_t_1024_metfaces.py -c stylegan3_t_metfaces_1024.pth --ncnn_output_path stylegan3_t_metfaces_1024 --seeds 0_1500
 ```
 
 -c代表读取的权重，--ncnn_output_path表示的是保存为NCNN所用的*.param和.bin文件的文件名。--seeds 0_1500表示导出0到1500这1501个随机种子。
@@ -900,6 +906,51 @@ cd build/examples
 
 ./stylegan 1 512 18 1.0 seeds/458.bin seeds/293.bin styleganv2ada_1024_ffhq_mapping.param styleganv2ada_1024_ffhq_mapping.bin styleganv2ada_1024_ffhq_synthesis.param styleganv2ada_1024_ffhq_synthesis.bin 0 1 2 3 4 5 6
 
+
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin styleganv3_s_256_custom_epoch_77_mapping.param styleganv3_s_256_custom_epoch_77_mapping.bin styleganv3_s_256_custom_epoch_77_synthesis.param styleganv3_s_256_custom_epoch_77_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin styleganv3_s_256_custom_epoch_77_mapping.param styleganv3_s_256_custom_epoch_77_mapping.bin styleganv3_s_256_custom_epoch_77_synthesis.param styleganv3_s_256_custom_epoch_77_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin styleganv3_s_256_custom_epoch_77_mapping.param styleganv3_s_256_custom_epoch_77_mapping.bin styleganv3_s_256_custom_epoch_77_synthesis.param styleganv3_s_256_custom_epoch_77_synthesis.bin 120 30
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_r_afhqv2_512_mapping.param stylegan3_r_afhqv2_512_mapping.bin stylegan3_r_afhqv2_512_synthesis.param stylegan3_r_afhqv2_512_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_afhqv2_512_mapping.param stylegan3_r_afhqv2_512_mapping.bin stylegan3_r_afhqv2_512_synthesis.param stylegan3_r_afhqv2_512_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_afhqv2_512_mapping.param stylegan3_r_afhqv2_512_mapping.bin stylegan3_r_afhqv2_512_synthesis.param stylegan3_r_afhqv2_512_synthesis.bin 120 30
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_r_ffhq_1024_mapping.param stylegan3_r_ffhq_1024_mapping.bin stylegan3_r_ffhq_1024_synthesis.param stylegan3_r_ffhq_1024_synthesis.bin 120 30
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_afhqv2_512_mapping.param stylegan3_t_afhqv2_512_mapping.bin stylegan3_t_afhqv2_512_synthesis.param stylegan3_t_afhqv2_512_synthesis.bin 120 30
+
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_ffhq_1024_mapping.param stylegan3_t_ffhq_1024_mapping.bin stylegan3_t_ffhq_1024_synthesis.param stylegan3_t_ffhq_1024_synthesis.bin 120 30
+
+
+
+./stylegan 0 512 16 1.0 seeds/458.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin
+
+./stylegan 1 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin 0 1 2 3 4 5 6
+
+./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin stylegan3_t_metfaces_1024_mapping.param stylegan3_t_metfaces_1024_mapping.bin stylegan3_t_metfaces_1024_synthesis.param stylegan3_t_metfaces_1024_synthesis.bin 120 30
 ```
 
 我解释一下这3条命令，其余命令同理
@@ -911,7 +962,7 @@ cd build/examples
 
 ./stylegan 2 512 16 1.0 seeds/458.bin seeds/293.bin styleganv2ada_512_afhqcat_mapping.param styleganv2ada_512_afhqcat_mapping.bin styleganv2ada_512_afhqcat_synthesis.param styleganv2ada_512_afhqcat_synthesis.bin 120 30
 ```
-第2个参数可以是0、1、2，0表示图片生成、1表示style_mixing、2表示图像渐变A2B。第3个参数512表示exp配置文件的z_dim，一般是512。第4个参数16表示模型的num_ws，导出时会打印num_ws。第5个参数1.0表示上文的--trunc，设为0时就能请出w_avg妈妈了！ seeds/458.bin表示随机种子文件路径，玩style_mixing和A2B时需要填2个随机种子文件路径。然后是mapping网络的param和bin文件路径、synthesis网络的param和bin文件路径。如果你玩style_mixing，往后可以输入" 0 1 2 3 4 5 6"，表示seeds/458.bin的ws（理论上MappingNetwork里repeat后的结果）的0 1 2 3 4 5 6个被替换成了seeds/293.bin的0 1 2 3 4 5 6个，因此生成的假照片里的猫咪有了seeds/293.bin的动作姿态，却有着seeds/458.bin的皮肤。如果你玩A2B，往后可以输入" 120 30"，表示用120帧实现渐变，生成的视频帧数是30（咩酱最后没有补全生成视频的代码，生成视频建议还是使用miemieGAN提供的A2B命令）。
+第2个参数可以是0、1、2，0表示图片生成、1表示style_mixing、2表示图像渐变A2B。第3个参数512表示exp配置文件的z_dim，一般是512。第4个参数16表示模型的num_ws，导出时会打印num_ws。第5个参数1.0表示上文的--trunc，设为0时就能请出w_avg妈妈了！ seeds/458.bin表示随机种子文件路径，玩style_mixing和A2B时需要填2个随机种子文件路径。然后是mapping网络的param和bin文件路径、synthesis网络的param和bin文件路径。如果你玩style_mixing，往后可以输入" 0 1 2 3 4 5 6"，表示seeds/458.bin的ws（理论上MappingNetwork里repeat后的结果）的0 1 2 3 4 5 6个被替换成了seeds/293.bin的0 1 2 3 4 5 6个，因此生成的假照片里的猫咪有了seeds/293.bin的动作姿态，却有着seeds/458.bin的皮肤。如果你玩A2B，往后可以输入" 120 30"，表示用120帧实现渐变，生成的视频帧数是30。
 
 
 比如，可以用这条命令请出w_avg妈妈：
